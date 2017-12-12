@@ -48,6 +48,7 @@ import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.compat.ActivityCompat;
 import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.feedback.FeedbackComponent;
 import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.multimedia.MultimediaData;
@@ -151,6 +152,11 @@ public class CallCardPresenter
     return !TextUtils.isEmpty(call.getCallSubject());
   }
 
+  private void addCallFeedbackListener(Context context) {
+    LogUtil.d("CallCardPresenter.addCallFeedbackListener", "Adding call feedback listener");
+    CallList.getInstance().addListener(FeedbackComponent.get(context).getCallFeedbackListener());
+  }
+
   @Override
   public void onInCallScreenDelegateInit(InCallScreen inCallScreen) {
     Assert.isNotNull(inCallScreen);
@@ -165,7 +171,7 @@ public class CallCardPresenter
         mInCallScreen.showNoteSentToast();
       }
       call.addListener(this);
-
+      addCallFeedbackListener(mContext);
       // start processing lookups right away.
       if (!call.isConferenceCall()) {
         startContactInfoSearch(call, true, call.getState() == DialerCall.State.INCOMING);
@@ -206,7 +212,7 @@ public class CallCardPresenter
 
     // Showing the location may have been skipped if the UI wasn't ready during previous layout.
     if (shouldShowLocation()) {
-      updatePrimaryDisplayInfo();
+      mInCallScreen.showLocationUi(getLocationFragment());
 
       // Log location impressions
       if (!hasLocationPermission()) {
@@ -795,33 +801,7 @@ public class CallCardPresenter
   }
 
   private Fragment getLocationFragment() {
-    if (!ConfigProviderBindings.get(mContext)
-        .getBoolean(CONFIG_ENABLE_EMERGENCY_LOCATION, CONFIG_ENABLE_EMERGENCY_LOCATION_DEFAULT)) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "disabled by config.");
-      return null;
-    }
     if (!shouldShowLocation()) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "shouldn't show location");
-      return null;
-    }
-    if (!hasLocationPermission()) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "no location permission.");
-      return null;
-    }
-    if (isBatteryTooLowForEmergencyLocation()) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "low battery.");
-      return null;
-    }
-    if (ActivityCompat.isInMultiWindowMode(mInCallScreen.getInCallScreenFragment().getActivity())) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "in multi-window mode");
-      return null;
-    }
-    if (mPrimary.isVideoCall()) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "emergency video calls not supported");
-      return null;
-    }
-    if (!callLocation.canGetLocation(mContext)) {
-      LogUtil.i("CallCardPresenter.getLocationFragment", "can't get current location");
       return null;
     }
     LogUtil.i("CallCardPresenter.getLocationFragment", "returning location fragment");
@@ -829,6 +809,39 @@ public class CallCardPresenter
   }
 
   private boolean shouldShowLocation() {
+    if (!ConfigProviderBindings.get(mContext)
+        .getBoolean(CONFIG_ENABLE_EMERGENCY_LOCATION, CONFIG_ENABLE_EMERGENCY_LOCATION_DEFAULT)) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "disabled by config.");
+      return false;
+    }
+    if (!isPotentialEmergencyCall()) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "shouldn't show location");
+      return false;
+    }
+    if (!hasLocationPermission()) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "no location permission.");
+      return false;
+    }
+    if (isBatteryTooLowForEmergencyLocation()) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "low battery.");
+      return false;
+    }
+    if (ActivityCompat.isInMultiWindowMode(mInCallScreen.getInCallScreenFragment().getActivity())) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "in multi-window mode");
+      return false;
+    }
+    if (mPrimary.isVideoCall()) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "emergency video calls not supported");
+      return false;
+    }
+    if (!callLocation.canGetLocation(mContext)) {
+      LogUtil.i("CallCardPresenter.getLocationFragment", "can't get current location");
+      return false;
+    }
+    return true;
+  }
+
+  private boolean isPotentialEmergencyCall() {
     if (isOutgoingEmergencyCall(mPrimary)) {
       LogUtil.i("CallCardPresenter.shouldShowLocation", "new emergency call");
       return true;

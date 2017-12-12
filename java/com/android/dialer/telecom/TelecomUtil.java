@@ -33,9 +33,12 @@ import android.support.v4.content.ContextCompat;
 import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 import android.text.TextUtils;
 import android.util.Pair;
 import com.android.dialer.common.LogUtil;
+import com.google.common.base.Optional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -143,6 +146,28 @@ public abstract class TelecomUtil {
       return getTelecomManager(context).getCallCapablePhoneAccounts();
     }
     return new ArrayList<>();
+  }
+
+  /**
+   * @return the {@link SubscriptionInfo} of the SIM if {@code phoneAccountHandle} corresponds to a
+   *     valid SIM. Absent otherwise.
+   */
+  public static Optional<SubscriptionInfo> getSubscriptionInfo(
+      @NonNull Context context, @NonNull PhoneAccountHandle phoneAccountHandle) {
+    if (TextUtils.isEmpty(phoneAccountHandle.getId())) {
+      return Optional.absent();
+    }
+    SubscriptionManager subscriptionManager = context.getSystemService(SubscriptionManager.class);
+    List<SubscriptionInfo> subscriptionInfos = subscriptionManager.getActiveSubscriptionInfoList();
+    if (subscriptionInfos == null) {
+      return Optional.absent();
+    }
+    for (SubscriptionInfo info : subscriptionInfos) {
+      if (phoneAccountHandle.getId().startsWith(info.getIccId())) {
+        return Optional.of(info);
+      }
+    }
+    return Optional.absent();
   }
 
   /**

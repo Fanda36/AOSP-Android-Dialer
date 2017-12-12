@@ -16,6 +16,8 @@
 
 package com.android.dialer.app.calllog;
 
+import android.Manifest.permission;
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
@@ -28,6 +30,7 @@ import android.provider.CallLog.Calls;
 import android.provider.ContactsContract.CommonDataKinds.Phone;
 import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
+import android.support.annotation.RequiresPermission;
 import android.support.annotation.VisibleForTesting;
 import android.support.v7.widget.CardView;
 import android.support.v7.widget.RecyclerView;
@@ -68,12 +71,14 @@ import com.android.dialer.calllogutils.CallbackActionHelper.CallbackAction;
 import com.android.dialer.clipboard.ClipboardUtils;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
+import com.android.dialer.common.concurrent.AsyncTaskExecutors;
 import com.android.dialer.compat.CompatUtils;
 import com.android.dialer.configprovider.ConfigProviderBindings;
 import com.android.dialer.constants.ActivityRequestCodes;
 import com.android.dialer.contactphoto.ContactPhotoManager;
 import com.android.dialer.dialercontact.DialerContact;
 import com.android.dialer.dialercontact.SimDetails;
+import com.android.dialer.duo.Duo;
 import com.android.dialer.duo.DuoConstants;
 import com.android.dialer.lettertile.LetterTileDrawable;
 import com.android.dialer.lettertile.LetterTileDrawable.ContactType;
@@ -95,6 +100,7 @@ import com.android.dialer.util.DialerUtils;
 import com.android.dialer.util.UriUtils;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.lang.ref.WeakReference;
 
 /**
  * This is an object containing references to views contained by the call log list item. This
@@ -107,6 +113,9 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
     implements View.OnClickListener,
         MenuItem.OnMenuItemClickListener,
         View.OnCreateContextMenuListener {
+
+  private static final String TASK_DELETE = "task_delete";
+
   /** The root view of the call log list item */
   public final View rootView;
   /** The quick contact badge for the contact. */
@@ -139,6 +148,8 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
 
   public View callButtonView;
   public View videoCallButtonView;
+  public View setUpVideoButtonView;
+  public View inviteVideoButtonView;
   public View createNewContactButtonView;
   public View addToExistingContactButtonView;
   public View sendMessageView;
@@ -220,7 +231,7 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
   public boolean isSpam;
 
   public boolean isCallComposerCapable;
-  public boolean duoReady;
+  public Duo duo;
 
   private View.OnClickListener mExpandCollapseListener;
   private final OnActionModeStateChangedListener onActionModeStateChangedListener;
@@ -431,6 +442,9 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
           .logImpression(DialerImpression.Type.CALL_LOG_CONTEXT_MENU_REPORT_AS_NOT_SPAM);
       mBlockReportListener.onReportNotSpam(
           displayNumber, number, countryIso, callType, info.sourceType);
+    } else if (resId == R.id.context_menu_delete) {
+      AsyncTaskExecutors.createAsyncTaskExecutor()
+          .submit(TASK_DELETE, new DeleteCallTask(mContext, callIds));
     }
     return false;
   }
@@ -454,6 +468,12 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
 
       videoCallButtonView = actionsView.findViewById(R.id.video_call_action);
       videoCallButtonView.setOnClickListener(this);
+
+      setUpVideoButtonView = actionsView.findViewById(R.id.set_up_video_action);
+      setUpVideoButtonView.setOnClickListener(this);
+
+      inviteVideoButtonView = actionsView.findViewById(R.id.invite_video_action);
+      inviteVideoButtonView.setOnClickListener(this);
 
       createNewContactButtonView = actionsView.findViewById(R.id.create_new_contact_action);
       createNewContactButtonView.setOnClickListener(this);
@@ -547,7 +567,7 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
       case CallbackAction.VOICE:
         if (mCallLogCache.isVoicemailNumber(accountHandle, number)) {
           // Call to generic voicemail number, in case there are multiple accounts
-          primaryActionButtonView.setTag(IntentProvider.getReturnVoicemailCallIntentProvider());
+          primaryActionButtonView.setTag(IntentProvider.getReturnVoicemailCallIntentProvider(null));
         } else if (canSupportAssistedDialing()) {
           primaryActionButtonView.setTag(
               IntentProvider.getAssistedDialIntentProvider(
@@ -582,6 +602,8 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
     // This saves us having to remember to set it to GONE in multiple places.
     callButtonView.setVisibility(View.GONE);
     videoCallButtonView.setVisibility(View.GONE);
+    setUpVideoButtonView.setVisibility(View.GONE);
+    inviteVideoButtonView.setVisibility(View.GONE);
 
     if (isFullyUndialableVoicemail()) {
       // Sometimes the voicemail server will report the message is from some non phone number
@@ -654,9 +676,15 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
             && (hasPlacedCarrierVideoCall() || canSupportCarrierVideoCall())) {
           videoCallButtonView.setTag(IntentProvider.getReturnVideoCallIntentProvider(number));
           videoCallButtonView.setVisibility(View.VISIBLE);
-        } else if (duoReady) {
+        } else if (duo.isReachable(mContext, number)) {
           videoCallButtonView.setTag(IntentProvider.getDuoVideoIntentProvider(number));
           videoCallButtonView.setVisibility(View.VISIBLE);
+        } else if (duo.isActivated(mContext)) {
+          inviteVideoButtonView.setTag(IntentProvider.getDuoInviteIntentProvider(number));
+          inviteVideoButtonView.setVisibility(View.VISIBLE);
+        } else if (duo.isEnabled(mContext)) {
+          setUpVideoButtonView.setTag(IntentProvider.getSetUpDuoIntentProvider());
+          setUpVideoButtonView.setVisibility(View.VISIBLE);
         }
         break;
       default:
@@ -744,7 +772,7 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
   private boolean showDuoPrimaryButton() {
     return accountHandle != null
         && accountHandle.getComponentName().equals(DuoConstants.PHONE_ACCOUNT_COMPONENT_NAME)
-        && duoReady;
+        && duo.isReachable(mContext, number);
   }
 
   private static boolean hasDialableChar(CharSequence number) {
@@ -1217,6 +1245,11 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
       }
     }
 
+    if (callType != CallLog.Calls.VOICEMAIL_TYPE) {
+      menu.add(ContextMenu.NONE, R.id.context_menu_delete, ContextMenu.NONE, R.string.delete)
+          .setOnMenuItemClickListener(this);
+    }
+
     Logger.get(mContext).logScreenView(ScreenEvent.Type.CALL_LOG_CONTEXT_MENU, (Activity) mContext);
   }
 
@@ -1260,5 +1293,59 @@ public final class CallLogListItemViewHolder extends RecyclerView.ViewHolder
         String countryIso,
         int callType,
         ContactSource.Type contactSourceType);
+  }
+
+  private static class DeleteCallTask extends AsyncTask<Void, Void, Void> {
+    // Using a weak reference to hold the Context so that there is no memory leak.
+    private final WeakReference<Context> contextWeakReference;
+
+    private final String callIdsStr;
+
+    DeleteCallTask(Context context, long[] callIdsArray) {
+      this.contextWeakReference = new WeakReference<>(context);
+      this.callIdsStr = concatCallIds(callIdsArray);
+    }
+
+    @Override
+    // Suppress the lint check here as the user will not be able to see call log entries if
+    // permission.WRITE_CALL_LOG is not granted.
+    @SuppressLint("MissingPermission")
+    @RequiresPermission(value = permission.WRITE_CALL_LOG)
+    protected Void doInBackground(Void... params) {
+      Context context = contextWeakReference.get();
+      if (context == null) {
+        return null;
+      }
+
+      if (callIdsStr != null) {
+        context
+            .getContentResolver()
+            .delete(
+                Calls.CONTENT_URI,
+                CallLog.Calls._ID + " IN (" + callIdsStr + ")" /* where */,
+                null /* selectionArgs */);
+      }
+
+      return null;
+    }
+
+    @Override
+    public void onPostExecute(Void result) {}
+
+    private String concatCallIds(long[] callIds) {
+      if (callIds == null || callIds.length == 0) {
+        return null;
+      }
+
+      StringBuilder str = new StringBuilder();
+      for (long callId : callIds) {
+        if (str.length() != 0) {
+          str.append(",");
+        }
+        str.append(callId);
+      }
+
+      return str.toString();
+    }
   }
 }

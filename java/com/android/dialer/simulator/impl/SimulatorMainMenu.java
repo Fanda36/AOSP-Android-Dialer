@@ -29,6 +29,7 @@ import com.android.dialer.databasepopulator.ContactsPopulator;
 import com.android.dialer.databasepopulator.VoicemailPopulator;
 import com.android.dialer.enrichedcall.simulator.EnrichedCallSimulatorActivity;
 import com.android.dialer.persistentlog.PersistentLogger;
+import com.android.dialer.preferredsim.PreferredSimFallbackContract;
 
 /** Implements the top level simulator menu. */
 final class SimulatorMainMenu {
@@ -39,7 +40,9 @@ final class SimulatorMainMenu {
         .addItem("IMS video", SimulatorVideoCall.getActionProvider(context))
         .addItem("Notifications", SimulatorNotifications.getActionProvider(context))
         .addItem("Populate database", () -> populateDatabase(context))
+        .addItem("Fast populate database", () -> fastPopulateDatabase(context))
         .addItem("Clean database", () -> cleanDatabase(context))
+        .addItem("clear preferred SIM", () -> clearPreferredSim(context))
         .addItem("Sync voicemail", () -> syncVoicemail(context))
         .addItem("Share persistent log", () -> sharePersistentLog(context))
         .addItem(
@@ -52,13 +55,29 @@ final class SimulatorMainMenu {
         .dialerExecutorFactory()
         .createNonUiTaskBuilder(new PopulateDatabaseWorker())
         .build()
-        .executeSerial(context);
+        .executeSerial(new PopulateDatabaseWorkerInput(context, false));
+  }
+
+  private static void fastPopulateDatabase(@NonNull Context context) {
+    DialerExecutorComponent.get(context)
+        .dialerExecutorFactory()
+        .createNonUiTaskBuilder(new PopulateDatabaseWorker())
+        .build()
+        .executeSerial(new PopulateDatabaseWorkerInput(context, true));
   }
 
   private static void cleanDatabase(@NonNull Context context) {
     DialerExecutorComponent.get(context)
         .dialerExecutorFactory()
         .createNonUiTaskBuilder(new CleanDatabaseWorker())
+        .build()
+        .executeSerial(context);
+  }
+
+  private static void clearPreferredSim(Context context) {
+    DialerExecutorComponent.get(context)
+        .dialerExecutorFactory()
+        .createNonUiTaskBuilder(new ClearPreferredSimWorker())
         .build()
         .executeSerial(context);
   }
@@ -87,13 +106,13 @@ final class SimulatorMainMenu {
 
   private SimulatorMainMenu() {}
 
-  private static class PopulateDatabaseWorker implements Worker<Context, Void> {
+  private static class PopulateDatabaseWorker implements Worker<PopulateDatabaseWorkerInput, Void> {
     @Nullable
     @Override
-    public Void doInBackground(Context context) {
-      ContactsPopulator.populateContacts(context);
-      CallLogPopulator.populateCallLog(context);
-      VoicemailPopulator.populateVoicemail(context);
+    public Void doInBackground(PopulateDatabaseWorkerInput input) {
+      ContactsPopulator.populateContacts(input.context, input.fastMode);
+      CallLogPopulator.populateCallLog(input.context, false, input.fastMode);
+      VoicemailPopulator.populateVoicemail(input.context, input.fastMode);
       return null;
     }
   }
@@ -109,11 +128,30 @@ final class SimulatorMainMenu {
     }
   }
 
+  private static class ClearPreferredSimWorker implements Worker<Context, Void> {
+    @Nullable
+    @Override
+    public Void doInBackground(Context context) {
+      context.getContentResolver().delete(PreferredSimFallbackContract.CONTENT_URI, null, null);
+      return null;
+    }
+  }
+
   private static class ShareLogWorker implements Worker<Void, String> {
     @Nullable
     @Override
     public String doInBackground(Void unused) {
       return PersistentLogger.dumpLogToString();
+    }
+  }
+
+  private static class PopulateDatabaseWorkerInput {
+    Context context;
+    boolean fastMode;
+
+    PopulateDatabaseWorkerInput(Context context, boolean fastMode) {
+      this.context = context;
+      this.fastMode = fastMode;
     }
   }
 }

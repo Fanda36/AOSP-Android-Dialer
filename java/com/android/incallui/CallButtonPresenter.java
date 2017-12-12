@@ -28,6 +28,7 @@ import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.logging.DialerImpression;
+import com.android.dialer.logging.DialerImpression.Type;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.telecom.TelecomUtil;
 import com.android.incallui.InCallCameraManager.Listener;
@@ -318,6 +319,7 @@ public class CallButtonPresenter
   @Override
   public void swapSimClicked() {
     LogUtil.enterBlock("CallButtonPresenter.swapSimClicked");
+    Logger.get(getContext()).logImpression(Type.DUAL_SIM_CHANGE_SIM_PRESSED);
     SwapSimWorker worker =
         new SwapSimWorker(
             getContext(),
@@ -464,7 +466,12 @@ public class CallButtonPresenter
             && call.getState() != DialerCall.State.CONNECTING;
 
     mOtherAccount = TelecomUtil.getOtherAccount(getContext(), call.getAccountHandle());
-    boolean showSwapSim = mOtherAccount != null && DialerCall.State.isDialing(call.getState());
+    boolean showSwapSim =
+        mOtherAccount != null
+            && !call.isVoiceMailNumber()
+            && DialerCall.State.isDialing(call.getState())
+            // Most devices cannot make calls on 2 SIMs at the same time.
+            && InCallPresenter.getInstance().getCallList().getAllCalls().size() == 1;
 
     mInCallButtonUi.showButton(InCallButtonIds.BUTTON_AUDIO, true);
     mInCallButtonUi.showButton(InCallButtonIds.BUTTON_SWAP, showSwap);
@@ -477,7 +484,8 @@ public class CallButtonPresenter
     mInCallButtonUi.showButton(InCallButtonIds.BUTTON_UPGRADE_TO_VIDEO, showUpgradeToVideo);
     mInCallButtonUi.showButton(InCallButtonIds.BUTTON_DOWNGRADE_TO_AUDIO, showDowngradeToAudio);
     mInCallButtonUi.showButton(
-        InCallButtonIds.BUTTON_SWITCH_CAMERA, isVideo && hasCameraPermission);
+        InCallButtonIds.BUTTON_SWITCH_CAMERA,
+        isVideo && hasCameraPermission && call.getVideoTech().isTransmitting());
     mInCallButtonUi.showButton(InCallButtonIds.BUTTON_PAUSE_VIDEO, showPauseVideo);
     if (isVideo) {
       mInCallButtonUi.setVideoPaused(!call.getVideoTech().isTransmitting() || !hasCameraPermission);
