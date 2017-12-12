@@ -17,8 +17,10 @@
 package com.android.dialer.widget;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.Resources;
-import android.graphics.drawable.Drawable;
+import android.support.annotation.DrawableRes;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.FloatingActionButton.OnVisibilityChangedListener;
 import android.view.View;
@@ -39,6 +41,7 @@ public class FloatingActionButtonController {
   private final int mFloatingActionButtonMarginRight;
   private final FloatingActionButton mFab;
   private final Interpolator mFabInterpolator;
+  private int mFabIconId = -1;
   private int mScreenWidth;
 
   public FloatingActionButtonController(Activity activity, FloatingActionButton fab) {
@@ -82,9 +85,14 @@ public class FloatingActionButtonController {
     }
   }
 
-  public void changeIcon(Drawable icon, String description) {
-    if (mFab.getDrawable() != icon || !mFab.getContentDescription().equals(description)) {
-      mFab.setImageDrawable(icon);
+  public void changeIcon(Context context, @DrawableRes int iconId, String description) {
+    if (this.mFabIconId != iconId) {
+      mFab.setImageResource(iconId);
+      mFab.setImageTintList(
+          ColorStateList.valueOf(context.getResources().getColor(android.R.color.white)));
+      this.mFabIconId = iconId;
+    }
+    if (!mFab.getContentDescription().equals(description)) {
       mFab.setContentDescription(description);
     }
   }

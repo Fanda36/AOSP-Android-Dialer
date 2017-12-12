@@ -89,7 +89,7 @@ import com.android.dialer.phonenumbercache.CallLogQuery;
 import com.android.dialer.phonenumbercache.ContactInfo;
 import com.android.dialer.phonenumbercache.ContactInfoHelper;
 import com.android.dialer.phonenumberutil.PhoneNumberHelper;
-import com.android.dialer.spam.Spam;
+import com.android.dialer.spam.SpamComponent;
 import com.android.dialer.util.PermissionsUtil;
 import java.util.ArrayList;
 import java.util.Map;
@@ -667,7 +667,7 @@ public class CallLogAdapter extends GroupingListAdapter
       mContactInfoCache.start();
     }
     mContactsPreferences.refreshValue(ContactsPreferences.DISPLAY_ORDER_KEY);
-    mIsSpamEnabled = Spam.get(mActivity).isSpamEnabled();
+    mIsSpamEnabled = SpamComponent.get(mActivity).spam().isSpamEnabled();
     getDuo().registerListener(this);
     notifyDataSetChanged();
   }
@@ -828,65 +828,66 @@ public class CallLogAdapter extends GroupingListAdapter
   }
 
   private void loadAndRender(
-      final CallLogListItemViewHolder views,
+      final CallLogListItemViewHolder viewHolder,
       final long rowId,
       final PhoneCallDetails details,
       final CallDetailsEntries callDetailsEntries) {
-    LogUtil.d("CallLogAdapter.loadAndRender", "position: %d", views.getAdapterPosition());
+    LogUtil.d("CallLogAdapter.loadAndRender", "position: %d", viewHolder.getAdapterPosition());
     // Reset block and spam information since this view could be reused which may contain
     // outdated data.
-    views.isSpam = false;
-    views.blockId = null;
-    views.isSpamFeatureEnabled = false;
+    viewHolder.isSpam = false;
+    viewHolder.blockId = null;
+    viewHolder.isSpamFeatureEnabled = false;
 
     // Attempt to set the isCallComposerCapable field. If capabilities are unknown for this number,
     // the value will be false while capabilities are requested. mExpandCollapseListener will
     // attempt to set the field properly in that case
-    views.isCallComposerCapable = isCallComposerCapable(views.number);
-    views.setDetailedPhoneDetails(callDetailsEntries);
-    views.duoReady = getDuo().isReachable(mActivity, views.number);
+    viewHolder.isCallComposerCapable = isCallComposerCapable(viewHolder.number);
+    viewHolder.setDetailedPhoneDetails(callDetailsEntries);
+    viewHolder.duo = getDuo();
     final AsyncTask<Void, Void, Boolean> loadDataTask =
         new AsyncTask<Void, Void, Boolean>() {
           @Override
           protected Boolean doInBackground(Void... params) {
-            views.blockId =
+            viewHolder.blockId =
                 mFilteredNumberAsyncQueryHandler.getBlockedIdSynchronous(
-                    views.number, views.countryIso);
-            details.isBlocked = views.blockId != null;
+                    viewHolder.number, viewHolder.countryIso);
+            details.isBlocked = viewHolder.blockId != null;
             if (isCancelled()) {
               return false;
             }
             if (mIsSpamEnabled) {
-              views.isSpamFeatureEnabled = true;
+              viewHolder.isSpamFeatureEnabled = true;
               // Only display the call as a spam call if there are incoming calls in the list.
               // Call log cards with only outgoing calls should never be displayed as spam.
-              views.isSpam =
+              viewHolder.isSpam =
                   details.hasIncomingCalls()
-                      && Spam.get(mActivity)
-                          .checkSpamStatusSynchronous(views.number, views.countryIso);
-              details.isSpam = views.isSpam;
+                      && SpamComponent.get(mActivity)
+                          .spam()
+                          .checkSpamStatusSynchronous(viewHolder.number, viewHolder.countryIso);
+              details.isSpam = viewHolder.isSpam;
             }
-            return !isCancelled() && loadData(views, rowId, details);
+            return !isCancelled() && loadData(viewHolder, rowId, details);
           }
 
           @Override
           protected void onPostExecute(Boolean success) {
-            views.isLoaded = true;
+            viewHolder.isLoaded = true;
             if (success) {
-              views.callbackAction = getCallbackAction(views.rowId);
-              int currentDayGroup = getDayGroup(views.rowId);
+              viewHolder.callbackAction = getCallbackAction(viewHolder.rowId);
+              int currentDayGroup = getDayGroup(viewHolder.rowId);
               if (currentDayGroup != details.previousGroup) {
-                views.dayGroupHeaderVisibility = View.VISIBLE;
-                views.dayGroupHeaderText = getGroupDescription(currentDayGroup);
+                viewHolder.dayGroupHeaderVisibility = View.VISIBLE;
+                viewHolder.dayGroupHeaderText = getGroupDescription(currentDayGroup);
               } else {
-                views.dayGroupHeaderVisibility = View.GONE;
+                viewHolder.dayGroupHeaderVisibility = View.GONE;
               }
-              render(views, details, rowId);
+              render(viewHolder, details, rowId);
             }
           }
         };
 
-    views.asyncTask = loadDataTask;
+    viewHolder.asyncTask = loadDataTask;
     mAsyncTaskExecutor.submit(LOAD_DATA_TASK_IDENTIFIER, loadDataTask);
   }
 
@@ -960,6 +961,7 @@ public class CallLogAdapter extends GroupingListAdapter
     }
     views.callType = cursor.getInt(CallLogQuery.CALL_TYPE);
     views.voicemailUri = cursor.getString(CallLogQuery.VOICEMAIL_URI);
+    details.voicemailUri = views.voicemailUri;
 
     return details;
   }

@@ -29,8 +29,6 @@ import com.android.contacts.common.util.ContactDisplayUtils;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.configprovider.ConfigProviderBindings;
 import com.android.dialer.lettertile.LetterTileDrawable;
-import com.android.dialer.logging.DialerImpression;
-import com.android.dialer.logging.Logger;
 import com.android.dialer.telecom.TelecomUtil;
 import com.android.incallui.ContactInfoCache.ContactCacheEntry;
 import com.android.incallui.ContactInfoCache.ContactInfoCacheCallback;
@@ -43,8 +41,6 @@ import com.android.incallui.call.DialerCall;
 import com.android.incallui.speakerbuttonlogic.SpeakerButtonInfo;
 import com.android.incallui.speakerbuttonlogic.SpeakerButtonInfo.IconSize;
 import com.android.newbubble.NewBubble;
-import com.android.newbubble.NewBubble.BubbleExpansionStateListener;
-import com.android.newbubble.NewBubble.ExpansionState;
 import com.android.newbubble.NewBubbleInfo;
 import com.android.newbubble.NewBubbleInfo.Action;
 import java.lang.ref.WeakReference;
@@ -93,7 +89,7 @@ public class NewReturnToCallController implements InCallUiListener, Listener, Au
     activityIntent.putExtra(RETURN_TO_CALL_EXTRA_KEY, true);
     fullScreen =
         PendingIntent.getActivity(
-            context, InCallActivity.PENDING_INTENT_REQUEST_CODE_BUBBLE, activityIntent, 0);
+            context, InCallActivity.PendingIntentRequestCodes.BUBBLE, activityIntent, 0);
 
     InCallPresenter.getInstance().addInCallUiListener(this);
     CallList.getInstance().addListener(this);
@@ -102,6 +98,7 @@ public class NewReturnToCallController implements InCallUiListener, Listener, Au
   }
 
   public void tearDown() {
+    hide();
     InCallPresenter.getInstance().removeInCallUiListener(this);
     CallList.getInstance().removeListener(this);
     AudioModeProvider.getInstance().removeListener(this);
@@ -150,45 +147,6 @@ public class NewReturnToCallController implements InCallUiListener, Listener, Au
       return null;
     }
     NewBubble returnToCallBubble = NewBubble.createBubble(context, generateBubbleInfo());
-    returnToCallBubble.setBubbleExpansionStateListener(
-        new BubbleExpansionStateListener() {
-          @Override
-          public void onBubbleExpansionStateChanged(
-              @ExpansionState int expansionState, boolean isUserAction) {
-            if (!isUserAction) {
-              return;
-            }
-
-            DialerCall call = CallList.getInstance().getActiveOrBackgroundCall();
-            switch (expansionState) {
-              case ExpansionState.START_EXPANDING:
-                if (call != null) {
-                  Logger.get(context)
-                      .logCallImpression(
-                          DialerImpression.Type.BUBBLE_PRIMARY_BUTTON_EXPAND,
-                          call.getUniqueCallId(),
-                          call.getTimeAddedMs());
-                } else {
-                  Logger.get(context)
-                      .logImpression(DialerImpression.Type.BUBBLE_PRIMARY_BUTTON_EXPAND);
-                }
-                break;
-              case ExpansionState.START_COLLAPSING:
-                if (call != null) {
-                  Logger.get(context)
-                      .logCallImpression(
-                          DialerImpression.Type.BUBBLE_COLLAPSE_BY_USER,
-                          call.getUniqueCallId(),
-                          call.getTimeAddedMs());
-                } else {
-                  Logger.get(context).logImpression(DialerImpression.Type.BUBBLE_COLLAPSE_BY_USER);
-                }
-                break;
-              default:
-                break;
-            }
-          }
-        });
     returnToCallBubble.show();
     return returnToCallBubble;
   }
@@ -247,7 +205,13 @@ public class NewReturnToCallController implements InCallUiListener, Listener, Au
   }
 
   private void startContactInfoSearch() {
-    DialerCall dialerCall = CallList.getInstance().getActiveOrBackgroundCall();
+    DialerCall dialerCall = CallList.getInstance().getIncomingCall();
+    if (dialerCall == null) {
+      dialerCall = CallList.getInstance().getOutgoingCall();
+    }
+    if (dialerCall == null) {
+      dialerCall = CallList.getInstance().getActiveOrBackgroundCall();
+    }
     if (dialerCall != null) {
       contactInfoCache.findInfo(
           dialerCall, false /* isIncoming */, new ReturnToCallContactInfoCacheCallback(this));
@@ -277,17 +241,22 @@ public class NewReturnToCallController implements InCallUiListener, Listener, Au
     List<Action> actions = new ArrayList<>();
     SpeakerButtonInfo speakerButtonInfo = new SpeakerButtonInfo(audioState, IconSize.SIZE_24_DP);
 
+    // Return to call
     actions.add(
         Action.builder()
-            .setIconDrawable(context.getDrawable(R.drawable.quantum_ic_fullscreen_vd_theme_24))
+            .setIconDrawable(context.getDrawable(R.drawable.quantum_ic_exit_to_app_vd_theme_24))
             .setIntent(fullScreen)
+            .setName(context.getText(R.string.bubble_return_to_call))
             .build());
+    // Mute/unmute
     actions.add(
         Action.builder()
             .setIconDrawable(context.getDrawable(R.drawable.quantum_ic_mic_off_white_24))
             .setChecked(audioState.isMuted())
             .setIntent(toggleMute)
+            .setName(context.getText(R.string.incall_label_mute))
             .build());
+    // Speaker/audio selector
     actions.add(
         Action.builder()
             .setIconDrawable(context.getDrawable(speakerButtonInfo.icon))
@@ -295,10 +264,12 @@ public class NewReturnToCallController implements InCallUiListener, Listener, Au
             .setChecked(speakerButtonInfo.isChecked)
             .setIntent(speakerButtonInfo.checkable ? toggleSpeaker : showSpeakerSelect)
             .build());
+    // End call
     actions.add(
         Action.builder()
             .setIconDrawable(context.getDrawable(R.drawable.quantum_ic_call_end_vd_theme_24))
             .setIntent(endCall)
+            .setName(context.getText(R.string.incall_label_end_call))
             .build());
     return actions;
   }
