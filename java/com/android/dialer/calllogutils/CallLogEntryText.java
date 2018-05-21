@@ -20,7 +20,13 @@ import android.content.Context;
 import android.provider.CallLog.Calls;
 import android.text.TextUtils;
 import com.android.dialer.calllog.model.CoalescedRow;
+import com.android.dialer.duo.DuoComponent;
+import com.android.dialer.spam.Spam;
 import com.android.dialer.time.Clock;
+import com.google.common.base.Optional;
+import com.google.common.collect.Collections2;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Computes the primary text and secondary text for call log entries.
@@ -37,42 +43,95 @@ public final class CallLogEntryText {
    * following the primary text.)
    */
   public static CharSequence buildPrimaryText(Context context, CoalescedRow row) {
-    StringBuilder primaryText = new StringBuilder();
-    if (!TextUtils.isEmpty(row.name())) {
-      primaryText.append(row.name());
-    } else if (!TextUtils.isEmpty(row.formattedNumber())) {
-      primaryText.append(row.formattedNumber());
-    } else {
-      // TODO(zachh): Handle CallLog.Calls.PRESENTATION_*, including Verizon restricted numbers.
-      primaryText.append(context.getText(R.string.new_call_log_unknown));
+    // Calls to emergency services should be shown as "Emergency number".
+    if (row.getNumberAttributes().getIsEmergencyNumber()) {
+      return context.getText(R.string.emergency_number);
     }
-    return primaryText.toString();
+
+    // Otherwise, follow the following order of preferences.
+    // 1st preference: the presentation name, like "Restricted".
+    Optional<String> presentationName =
+        PhoneNumberDisplayUtil.getNameForPresentation(context, row.getNumberPresentation());
+    if (presentationName.isPresent()) {
+      return presentationName.get();
+    }
+
+    // 2nd preference: the voicemail tag if the call is one made to a voicemail box.
+    if (row.getIsVoicemailCall() && !TextUtils.isEmpty(row.getVoicemailCallTag())) {
+      return row.getVoicemailCallTag();
+    }
+
+    // 3rd preference: the name associated with the number.
+    if (!TextUtils.isEmpty(row.getNumberAttributes().getName())) {
+      return row.getNumberAttributes().getName();
+    }
+
+    // 4th preference: the formatted number.
+    if (!TextUtils.isEmpty(row.getFormattedNumber())) {
+      return row.getFormattedNumber();
+    }
+
+    // Last resort: show "Unknown".
+    return context.getText(R.string.new_call_log_unknown);
   }
 
-  /** The secondary text to show in the main call log entry list. */
+  /**
+   * The secondary text to show in the main call log entry list.
+   *
+   * <p>Rules:
+   *
+   * <ul>
+   *   <li>An emergency number: Date
+   *   <li>Number - not blocked, call - not spam:
+   *       <p>$Label(, Duo video|Carrier video)?|$Location • Date
+   *   <li>Number - blocked, call - not spam:
+   *       <p>Blocked • $Label(, Duo video|Carrier video)?|$Location • Date
+   *   <li>Number - not blocked, call - spam:
+   *       <p>Spam • $Label(, Duo video|Carrier video)? • Date
+   *   <li>Number - blocked, call - spam:
+   *       <p>Blocked • Spam • $Label(, Duo video|Carrier video)? • Date
+   * </ul>
+   *
+   * <p>Examples:
+   *
+   * <ul>
+   *   <li>Mobile, Duo video • Now
+   *   <li>Duo video • 10 min ago
+   *   <li>Mobile • 11:45 PM
+   *   <li>Mobile • Sun
+   *   <li>Blocked • Mobile, Duo video • Now
+   *   <li>Blocked • Brooklyn, NJ • 10 min ago
+   *   <li>Spam • Mobile • Now
+   *   <li>Spam • Now
+   *   <li>Blocked • Spam • Mobile • Now
+   *   <li>Brooklyn, NJ • Jan 15
+   * </ul>
+   *
+   * <p>See {@link CallLogDates#newCallLogTimestampLabel(Context, long, long)} for date rules.
+   */
   public static CharSequence buildSecondaryTextForEntries(
       Context context, Clock clock, CoalescedRow row) {
-    /*
-     * Rules: (Duo video, )?$Label|$Location • Date
-     *
-     * Examples:
-     *   Duo Video, Mobile • Now
-     *   Duo Video • 11:45pm
-     *   Mobile • 11:45pm
-     *   Mobile • Sunday
-     *   Brooklyn, NJ • Jan 15
-     *
-     * Date rules:
-     *   if < 1 minute ago: "Now"; else if today: HH:MM(am|pm); else if < 3 days: day; else: MON D
-     */
-    StringBuilder secondaryText = secondaryTextPrefix(context, row);
-
-    if (secondaryText.length() > 0) {
-      secondaryText.append(" • ");
+    // For emergency numbers, the secondary text should contain only the timestamp.
+    if (row.getNumberAttributes().getIsEmergencyNumber()) {
+      return CallLogDates.newCallLogTimestampLabel(
+          context, clock.currentTimeMillis(), row.getTimestamp());
     }
-    secondaryText.append(
-        CallLogDates.newCallLogTimestampLabel(context, clock.currentTimeMillis(), row.timestamp()));
-    return secondaryText.toString();
+
+    List<CharSequence> components = new ArrayList<>();
+
+    if (row.getNumberAttributes().getIsBlocked()) {
+      components.add(context.getText(R.string.new_call_log_secondary_blocked));
+    }
+    if (Spam.shouldShowAsSpam(row.getNumberAttributes().getIsSpam(), row.getCallType())) {
+      components.add(context.getText(R.string.new_call_log_secondary_spam));
+    }
+
+    components.add(getNumberTypeLabel(context, row));
+
+    components.add(
+        CallLogDates.newCallLogTimestampLabel(
+            context, clock.currentTimeMillis(), row.getTimestamp()));
+    return joinSecondaryTextComponents(components);
   }
 
   /**
@@ -82,60 +141,111 @@ public final class CallLogEntryText {
    * CoalescedRow)} except that instead of suffixing with the time of the call, we suffix with the
    * formatted number.
    */
-  public static String buildSecondaryTextForBottomSheet(Context context, CoalescedRow row) {
+  public static CharSequence buildSecondaryTextForBottomSheet(Context context, CoalescedRow row) {
     /*
-     * Rules: (Duo video, )?$Label|$Location [• NumberIfNoName]?
+     * Rules:
+     *   For an emergency number:
+     *     Number
+     *   Number - not blocked, call - not spam:
+     *     $Label(, Duo video|Carrier video)?|$Location [• NumberIfNoName]?
+     *   Number - blocked, call - not spam:
+     *     Blocked • $Label(, Duo video|Carrier video)?|$Location [• NumberIfNoName]?
+     *   Number - not blocked, call - spam:
+     *     Spam • $Label(, Duo video|Carrier video)? [• NumberIfNoName]?
+     *   Number - blocked, call - spam:
+     *     Blocked • Spam • $Label(, Duo video|Carrier video)? [• NumberIfNoName]?
      *
      * The number is shown at the end if there is no name for the entry. (It is shown in primary
      * text otherwise.)
      *
      * Examples:
-     *   Duo Video, Mobile • 555-1234
-     *   Duo Video • 555-1234
+     *   Mobile, Duo video • 555-1234
+     *   Duo video • 555-1234
      *   Mobile • 555-1234
+     *   Blocked • Mobile • 555-1234
+     *   Blocked • Brooklyn, NJ • 555-1234
+     *   Spam • Mobile • 555-1234
      *   Mobile • 555-1234
      *   Brooklyn, NJ
      */
-    StringBuilder secondaryText = secondaryTextPrefix(context, row);
 
-    if (TextUtils.isEmpty(row.name())) {
+    // For emergency numbers, the secondary text should contain only the number.
+    if (row.getNumberAttributes().getIsEmergencyNumber()) {
+      return !row.getFormattedNumber().isEmpty()
+          ? row.getFormattedNumber()
+          : row.getNumber().getNormalizedNumber();
+    }
+
+    List<CharSequence> components = new ArrayList<>();
+
+    if (row.getNumberAttributes().getIsBlocked()) {
+      components.add(context.getText(R.string.new_call_log_secondary_blocked));
+    }
+    if (Spam.shouldShowAsSpam(row.getNumberAttributes().getIsSpam(), row.getCallType())) {
+      components.add(context.getText(R.string.new_call_log_secondary_spam));
+    }
+
+    components.add(getNumberTypeLabel(context, row));
+
+    // If there's a presentation name, we showed it in the primary text and shouldn't show any name
+    // or number here.
+    Optional<String> presentationName =
+        PhoneNumberDisplayUtil.getNameForPresentation(context, row.getNumberPresentation());
+    if (presentationName.isPresent()) {
+      return joinSecondaryTextComponents(components);
+    }
+
+    if (TextUtils.isEmpty(row.getNumberAttributes().getName())) {
       // If the name is empty the number is shown as the primary text and there's nothing to add.
-      return secondaryText.toString();
+      return joinSecondaryTextComponents(components);
     }
-    if (TextUtils.isEmpty(row.formattedNumber())) {
+    if (TextUtils.isEmpty(row.getFormattedNumber())) {
       // If there's no number, don't append anything.
-      return secondaryText.toString();
+      return joinSecondaryTextComponents(components);
     }
-    // Otherwise append the number.
-    if (secondaryText.length() > 0) {
-      secondaryText.append(" • ");
-    }
-    secondaryText.append(row.formattedNumber());
-    return secondaryText.toString();
+    components.add(row.getFormattedNumber());
+    return joinSecondaryTextComponents(components);
   }
 
   /**
-   * Returns a value such as "Duo Video, Mobile" without the time of the call or formatted number
+   * Returns a value such as "Mobile, Duo video" without the time of the call or formatted number
    * appended.
    *
    * <p>When the secondary text is shown in call log entry list, this prefix is suffixed with the
    * time of the call, and when it is shown in a bottom sheet, it is suffixed with the formatted
    * number.
    */
-  private static StringBuilder secondaryTextPrefix(Context context, CoalescedRow row) {
+  private static CharSequence getNumberTypeLabel(Context context, CoalescedRow row) {
     StringBuilder secondaryText = new StringBuilder();
-    if ((row.features() & Calls.FEATURES_VIDEO) == Calls.FEATURES_VIDEO) {
-      // TODO(zachh): Add "Duo" prefix?
-      secondaryText.append(context.getText(R.string.new_call_log_video));
-    }
-    String numberTypeLabel = row.numberTypeLabel();
-    if (!TextUtils.isEmpty(numberTypeLabel)) {
+
+    // The number type label comes first (e.g., "Mobile", "Work", "Home", etc).
+    String numberTypeLabel = row.getNumberAttributes().getNumberTypeLabel();
+    secondaryText.append(numberTypeLabel);
+
+    // Add video call info if applicable.
+    if ((row.getFeatures() & Calls.FEATURES_VIDEO) == Calls.FEATURES_VIDEO) {
       if (secondaryText.length() > 0) {
         secondaryText.append(", ");
       }
-      secondaryText.append(numberTypeLabel);
-    } else { // If there's a number type label, don't show the location.
-      String location = row.geocodedLocation();
+
+      boolean isDuoCall =
+          DuoComponent.get(context).getDuo().isDuoAccount(row.getPhoneAccountComponentName());
+      secondaryText.append(
+          context.getText(
+              isDuoCall ? R.string.new_call_log_duo_video : R.string.new_call_log_carrier_video));
+    }
+
+    // Show the location if
+    // (1) there is no number type label, and
+    // (2) the call should not be shown as spam.
+    if (TextUtils.isEmpty(numberTypeLabel)
+        && !Spam.shouldShowAsSpam(row.getNumberAttributes().getIsSpam(), row.getCallType())) {
+      // If number attributes contain a location (obtained from a PhoneLookup), use it instead
+      // of the one from the annotated call log.
+      String location =
+          !TextUtils.isEmpty(row.getNumberAttributes().getGeolocation())
+              ? row.getNumberAttributes().getGeolocation()
+              : row.getGeocodedLocation();
       if (!TextUtils.isEmpty(location)) {
         if (secondaryText.length() > 0) {
           secondaryText.append(", ");
@@ -143,6 +253,12 @@ public final class CallLogEntryText {
         secondaryText.append(location);
       }
     }
+
     return secondaryText;
+  }
+
+  private static CharSequence joinSecondaryTextComponents(List<CharSequence> components) {
+    return TextUtils.join(
+        " • ", Collections2.filter(components, (text) -> !TextUtils.isEmpty(text)));
   }
 }

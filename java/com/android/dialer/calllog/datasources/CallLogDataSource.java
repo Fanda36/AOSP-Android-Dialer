@@ -17,7 +17,6 @@
 package com.android.dialer.calllog.datasources;
 
 import android.content.ContentValues;
-import android.content.Context;
 import android.support.annotation.MainThread;
 import android.support.annotation.WorkerThread;
 import com.android.dialer.calllog.database.contract.AnnotatedCallLogContract;
@@ -32,18 +31,17 @@ import java.util.List;
  * always invoked.
  *
  * <ol>
- *   <li>{@link #isDirty(Context)}: Invoked only if the framework doesn't yet know if a rebuild is
+ *   <li>{@link #isDirty()}: Invoked only if the framework doesn't yet know if a rebuild is
  *       necessary.
- *   <li>{@link #fill(Context, CallLogMutations)}: Invoked only if the framework determined a
- *       rebuild is necessary.
- *   <li>{@link #onSuccessfulFill(Context)}: Invoked if and only if fill was previously called and
- *       the mutations provided by the previous fill operation succeeded in being applied.
+ *   <li>{@link #fill(CallLogMutations)}: Invoked only if the framework determined a rebuild is
+ *       necessary.
+ *   <li>{@link #onSuccessfulFill()}: Invoked if and only if fill was previously called and the
+ *       mutations provided by the previous fill operation succeeded in being applied.
  * </ol>
  *
- * <p>Because {@link #isDirty(Context)} is not always invoked, {@link #fill(Context,
- * CallLogMutations)} shouldn't rely on any state saved during {@link #isDirty(Context)}. It
- * <em>is</em> safe to assume that {@link #onSuccessfulFill(Context)} refers to the previous fill
- * operation.
+ * <p>Because {@link #isDirty()} is not always invoked, {@link #fill(CallLogMutations)} shouldn't
+ * rely on any state saved during {@link #isDirty()}. It <em>is</em> safe to assume that {@link
+ * #onSuccessfulFill()} refers to the previous fill operation.
  *
  * <p>The same data source objects may be reused across multiple checkDirtyAndRebuild cycles, so
  * implementors should take care to clear any internal state at the start of a new cycle.
@@ -65,7 +63,7 @@ public interface CallLogDataSource {
    *
    * @see CallLogDataSource class doc for complete lifecyle information
    */
-  ListenableFuture<Boolean> isDirty(Context appContext);
+  ListenableFuture<Boolean> isDirty();
 
   /**
    * Computes the set of mutations necessary to update the annotated call log with respect to this
@@ -76,7 +74,7 @@ public interface CallLogDataSource {
    *     contain inserts from the system call log, and these inserts should be modified by each data
    *     source.
    */
-  ListenableFuture<Void> fill(Context appContext, CallLogMutations mutations);
+  ListenableFuture<Void> fill(CallLogMutations mutations);
 
   /**
    * Called after database mutations have been applied to all data sources. This is useful for
@@ -85,7 +83,7 @@ public interface CallLogDataSource {
    *
    * @see CallLogDataSource class doc for complete lifecyle information
    */
-  ListenableFuture<Void> onSuccessfulFill(Context appContext);
+  ListenableFuture<Void> onSuccessfulFill();
 
   /**
    * Combines raw annotated call log rows into a single coalesced row.
@@ -104,14 +102,22 @@ public interface CallLogDataSource {
   ContentValues coalesce(List<ContentValues> individualRowsSortedByTimestampDesc);
 
   @MainThread
-  void registerContentObservers(
-      Context appContext, ContentObserverCallbacks contentObserverCallbacks);
+  void registerContentObservers();
+
+  @MainThread
+  void unregisterContentObservers();
 
   /**
-   * Methods which may optionally be called as a result of a data source's content observer firing.
+   * Clear any data written by this data source. This is called when the new call log framework has
+   * been disabled (because for example there was a problem with it).
    */
-  interface ContentObserverCallbacks {
-    @MainThread
-    void markDirtyAndNotify(Context appContext);
-  }
+  @MainThread
+  ListenableFuture<Void> clearData();
+
+  /**
+   * The name of this daa source for logging purposes. This is generally the same as the class name
+   * (but should not use methods from {@link Class} because the class names are generally obfuscated
+   * by Proguard.
+   */
+  String getLoggingName();
 }

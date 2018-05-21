@@ -20,8 +20,10 @@ import android.content.Context;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.telecom.Call;
+import android.telecom.PhoneAccountHandle;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
+import com.android.dialer.common.concurrent.DefaultFutureCallback;
 import com.android.dialer.configprovider.ConfigProviderBindings;
 import com.android.dialer.duo.Duo;
 import com.android.dialer.duo.DuoListener;
@@ -32,6 +34,8 @@ import com.android.incallui.videotech.VideoTech;
 import com.android.incallui.videotech.utils.SessionModificationState;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.MoreExecutors;
 
 public class DuoVideoTech implements VideoTech, DuoListener {
   private final Duo duo;
@@ -55,7 +59,7 @@ public class DuoVideoTech implements VideoTech, DuoListener {
   }
 
   @Override
-  public boolean isAvailable(Context context) {
+  public boolean isAvailable(Context context, PhoneAccountHandle phoneAccountHandle) {
     if (!ConfigProviderBindings.get(context)
         .getBoolean("enable_lightbringer_video_upgrade", true)) {
       LogUtil.v("DuoVideoTech.isAvailable", "upgrade disabled by flag");
@@ -66,7 +70,7 @@ public class DuoVideoTech implements VideoTech, DuoListener {
       LogUtil.v("DuoVideoTech.isAvailable", "upgrade unavailable, call must be active");
       return false;
     }
-    Optional<Boolean> localResult = duo.supportsUpgrade(context, callingNumber);
+    Optional<Boolean> localResult = duo.supportsUpgrade(context, callingNumber, phoneAccountHandle);
     if (localResult.isPresent()) {
       LogUtil.v(
           "DuoVideoTech.isAvailable", "upgrade supported in local cache: " + localResult.get());
@@ -76,7 +80,10 @@ public class DuoVideoTech implements VideoTech, DuoListener {
     if (!isRemoteUpgradeAvailabilityQueried) {
       LogUtil.v("DuoVideoTech.isAvailable", "reachability unknown, starting remote query");
       isRemoteUpgradeAvailabilityQueried = true;
-      duo.updateReachability(context, ImmutableList.of(callingNumber));
+      Futures.addCallback(
+          duo.updateReachability(context, ImmutableList.of(callingNumber)),
+          new DefaultFutureCallback<>(),
+          MoreExecutors.directExecutor());
     }
 
     return false;
@@ -109,7 +116,8 @@ public class DuoVideoTech implements VideoTech, DuoListener {
   }
 
   @Override
-  public void onCallStateChanged(Context context, int newState) {
+  public void onCallStateChanged(
+      Context context, int newState, PhoneAccountHandle phoneAccountHandle) {
     if (newState == Call.STATE_DISCONNECTING) {
       duo.unregisterListener(this);
     }

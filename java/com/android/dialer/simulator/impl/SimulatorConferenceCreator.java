@@ -46,13 +46,18 @@ final class SimulatorConferenceCreator
 
   @Simulator.ConferenceType private final int conferenceType;
 
-  public SimulatorConferenceCreator(
+  SimulatorConferenceCreator(
       @NonNull Context context, @Simulator.ConferenceType int conferenceType) {
     this.context = Assert.isNotNull(context);
     this.conferenceType = conferenceType;
     simulatorConnectionsBank = SimulatorComponent.get(context).getSimulatorConnectionsBank();
   }
 
+  /**
+   * Starts to create certain number of calls to form a conference call.
+   *
+   * @param callCount the number of calls in conference to create.
+   */
   void start(int callCount) {
     onNewIncomingConnectionEnabled = true;
     SimulatorConnectionService.addListener(this);
@@ -92,12 +97,13 @@ final class SimulatorConferenceCreator
   private void addConferenceCall(String number, Bundle extras) {
     switch (conferenceType) {
       case Simulator.CONFERENCE_TYPE_VOLTE:
-        extras.putBoolean("ISVOLTE", true);
+        extras.putBoolean(Simulator.IS_VOLTE, true);
         break;
       default:
         break;
     }
-    SimulatorSimCallManager.addNewIncomingCall(context, number, false /* isVideo */, extras);
+    SimulatorSimCallManager.addNewIncomingCall(
+        context, number, SimulatorSimCallManager.CALL_TYPE_VOICE, extras);
   }
 
   @Override

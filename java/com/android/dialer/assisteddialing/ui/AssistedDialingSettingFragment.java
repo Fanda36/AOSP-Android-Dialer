@@ -16,6 +16,8 @@
 package com.android.dialer.assisteddialing.ui;
 
 import android.annotation.TargetApi;
+import android.icu.util.ULocale;
+import android.icu.util.ULocale.Builder;
 import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import android.preference.ListPreference;
@@ -138,6 +140,28 @@ public class AssistedDialingSettingFragment extends PreferenceFragment {
 
     countryChooserPref.setEntries(newKeys.toArray(new CharSequence[newKeys.size()]));
     countryChooserPref.setEntryValues(newValues.toArray(new CharSequence[newValues.size()]));
+
+    if (!newValues.contains(countryChooserPref.getValue())) {
+      ameliorateInvalidSelectedValue(countryChooserPref);
+    }
+  }
+
+  /**
+   * Restore an invalid user selected value to the default value.
+   *
+   * <p>In the Assisted Dialing settings in Dialer, this state is possible when a user selected a
+   * country code, and then that country code was removed from our filtered list, typically via a
+   * change in the available countries provided by a server side flag.
+   *
+   * @param countryChooserPref The list preference to restore to default when an invalid value is
+   *     detected.
+   */
+  private void ameliorateInvalidSelectedValue(ListPreference countryChooserPref) {
+    // Reset the preference value to the default value.
+    countryChooserPref.setValue(countryChooserPref.getEntryValues()[0].toString());
+    LogUtil.i(
+        "AssistedDialingSettingFragment.ameliorateInvalidSelectedValue",
+        "Reset the country chooser preference to the default value.");
   }
 
   private List<DisplayNameAndCountryCodeTuple> buildDefaultCountryChooserKeysAndValues(
@@ -150,8 +174,19 @@ public class AssistedDialingSettingFragment extends PreferenceFragment {
     }
 
     List<DisplayNameAndCountryCodeTuple> displayNamesandCountryCodes = new ArrayList<>();
+    // getCountry() is actually getRegion() and conforms to the iso standards of input for the
+    // builder.
+    ULocale userLocale =
+        new ULocale.Builder()
+            .setRegion(getResources().getConfiguration().getLocales().get(0).getCountry())
+            .setLanguage(getResources().getConfiguration().getLocales().get(0).getLanguage())
+            .build();
     for (int i = 0; i < keys.length; i++) {
-      displayNamesandCountryCodes.add(DisplayNameAndCountryCodeTuple.create(keys[i], values[i]));
+      ULocale settingRowDisplayCountry = new Builder().setRegion(values[i].toString()).build();
+      String localizedDisplayCountry = settingRowDisplayCountry.getDisplayCountry(userLocale);
+      String settingDisplayName = localizedDisplayCountry + " " + keys[i];
+      displayNamesandCountryCodes.add(
+          DisplayNameAndCountryCodeTuple.create(settingDisplayName, values[i]));
     }
 
     return displayNamesandCountryCodes;

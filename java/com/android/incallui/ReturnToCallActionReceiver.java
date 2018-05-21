@@ -32,14 +32,18 @@ import com.android.incallui.call.TelecomAdapter;
 /** Handles clicks on the return-to-call bubble */
 public class ReturnToCallActionReceiver extends BroadcastReceiver {
 
-  public static final String ACTION_TOGGLE_SPEAKER = "toggleSpeaker";
-  public static final String ACTION_SHOW_AUDIO_ROUTE_SELECTOR = "showAudioRouteSelector";
-  public static final String ACTION_TOGGLE_MUTE = "toggleMute";
-  public static final String ACTION_END_CALL = "endCall";
+  public static final String ACTION_RETURN_TO_CALL = "returnToCallV2";
+  public static final String ACTION_TOGGLE_SPEAKER = "toggleSpeakerV2";
+  public static final String ACTION_SHOW_AUDIO_ROUTE_SELECTOR = "showAudioRouteSelectorV2";
+  public static final String ACTION_TOGGLE_MUTE = "toggleMuteV2";
+  public static final String ACTION_END_CALL = "endCallV2";
 
   @Override
   public void onReceive(Context context, Intent intent) {
     switch (intent.getAction()) {
+      case ACTION_RETURN_TO_CALL:
+        returnToCall(context);
+        break;
       case ACTION_TOGGLE_SPEAKER:
         toggleSpeaker(context);
         break;
@@ -56,6 +60,19 @@ public class ReturnToCallActionReceiver extends BroadcastReceiver {
         throw Assert.createIllegalStateFailException(
             "Invalid intent action: " + intent.getAction());
     }
+  }
+
+  private void returnToCall(Context context) {
+    DialerCall call = getCall();
+    Logger.get(context)
+        .logCallImpression(
+            DialerImpression.Type.BUBBLE_V2_RETURN_TO_CALL,
+            call != null ? call.getUniqueCallId() : "",
+            call != null ? call.getTimeAddedMs() : 0);
+
+    Intent activityIntent = InCallActivity.getIntent(context, false, false, false);
+    activityIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    context.startActivity(activityIntent);
   }
 
   private void toggleSpeaker(Context context) {
@@ -76,14 +93,14 @@ public class ReturnToCallActionReceiver extends BroadcastReceiver {
       newRoute = CallAudioState.ROUTE_WIRED_OR_EARPIECE;
       Logger.get(context)
           .logCallImpression(
-              DialerImpression.Type.BUBBLE_TURN_ON_WIRED_OR_EARPIECE,
+              DialerImpression.Type.BUBBLE_V2_WIRED_OR_EARPIECE,
               call != null ? call.getUniqueCallId() : "",
               call != null ? call.getTimeAddedMs() : 0);
     } else {
       newRoute = CallAudioState.ROUTE_SPEAKER;
       Logger.get(context)
           .logCallImpression(
-              DialerImpression.Type.BUBBLE_TURN_ON_SPEAKERPHONE,
+              DialerImpression.Type.BUBBLE_V2_SPEAKERPHONE,
               call != null ? call.getUniqueCallId() : "",
               call != null ? call.getTimeAddedMs() : 0);
     }
@@ -102,8 +119,8 @@ public class ReturnToCallActionReceiver extends BroadcastReceiver {
     Logger.get(context)
         .logCallImpression(
             shouldMute
-                ? DialerImpression.Type.BUBBLE_MUTE_CALL
-                : DialerImpression.Type.BUBBLE_UNMUTE_CALL,
+                ? DialerImpression.Type.BUBBLE_V2_MUTE_CALL
+                : DialerImpression.Type.BUBBLE_V2_UNMUTE_CALL,
             call != null ? call.getUniqueCallId() : "",
             call != null ? call.getTimeAddedMs() : 0);
     TelecomAdapter.getInstance().mute(shouldMute);
@@ -114,7 +131,7 @@ public class ReturnToCallActionReceiver extends BroadcastReceiver {
 
     Logger.get(context)
         .logCallImpression(
-            DialerImpression.Type.BUBBLE_END_CALL,
+            DialerImpression.Type.BUBBLE_V2_END_CALL,
             call != null ? call.getUniqueCallId() : "",
             call != null ? call.getTimeAddedMs() : 0);
     if (call != null) {

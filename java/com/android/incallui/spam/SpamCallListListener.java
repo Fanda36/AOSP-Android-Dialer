@@ -34,7 +34,6 @@ import android.support.v4.os.BuildCompat;
 import android.telecom.DisconnectCause;
 import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
-import com.android.contacts.common.compat.PhoneNumberUtilsCompat;
 import com.android.dialer.blocking.FilteredNumberCompat;
 import com.android.dialer.blocking.FilteredNumbersUtil;
 import com.android.dialer.common.Assert;
@@ -47,6 +46,7 @@ import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.notification.DialerNotificationManager;
 import com.android.dialer.notification.NotificationChannelId;
+import com.android.dialer.phonenumberutil.PhoneNumberHelper;
 import com.android.dialer.spam.SpamComponent;
 import com.android.dialer.telecom.TelecomUtil;
 import com.android.dialer.util.PermissionsUtil;
@@ -87,7 +87,7 @@ public class SpamCallListListener implements CallList.Listener {
   }
 
   /** Checks if the number is in the call history. */
-  @TargetApi(VERSION_CODES.M)
+  @TargetApi(VERSION_CODES.N)
   private static final class NumberInCallHistoryWorker implements Worker<Void, Integer> {
 
     private final Context appContext;
@@ -205,7 +205,7 @@ public class SpamCallListListener implements CallList.Listener {
 
   /** Determines if the after call notification should be shown for the specified call. */
   private boolean shouldShowAfterCallNotification(DialerCall call) {
-    if (!SpamComponent.get(context).spam().isSpamNotificationEnabled()) {
+    if (!SpamComponent.get(context).spamSettings().isSpamNotificationEnabled()) {
       return false;
     }
 
@@ -219,7 +219,7 @@ public class SpamCallListListener implements CallList.Listener {
       return false;
     }
 
-    if (logState.duration <= 0) {
+    if (logState.telecomDurationMillis <= 0) {
       return false;
     }
 
@@ -267,8 +267,9 @@ public class SpamCallListListener implements CallList.Listener {
 
   private CharSequence getDisplayNumber(DialerCall call) {
     String formattedNumber =
-        PhoneNumberUtils.formatNumber(call.getNumber(), GeoUtil.getCurrentCountryIso(context));
-    return PhoneNumberUtilsCompat.createTtsSpannable(formattedNumber);
+        PhoneNumberHelper.formatNumber(
+            context, call.getNumber(), GeoUtil.getCurrentCountryIso(context));
+    return PhoneNumberUtils.createTtsSpannable(formattedNumber);
   }
 
   /** Display a notification with two actions: "add contact" and "report spam". */
@@ -304,7 +305,8 @@ public class SpamCallListListener implements CallList.Listener {
 
   private boolean shouldThrottleSpamNotification() {
     int randomNumber = random.nextInt(100);
-    int thresholdForShowing = SpamComponent.get(context).spam().percentOfSpamNotificationsToShow();
+    int thresholdForShowing =
+        SpamComponent.get(context).spamSettings().percentOfSpamNotificationsToShow();
     if (thresholdForShowing == 0) {
       LogUtil.d(
           "SpamCallListListener.shouldThrottleSpamNotification",
@@ -328,7 +330,7 @@ public class SpamCallListListener implements CallList.Listener {
   private boolean shouldThrottleNonSpamNotification() {
     int randomNumber = random.nextInt(100);
     int thresholdForShowing =
-        SpamComponent.get(context).spam().percentOfNonSpamNotificationsToShow();
+        SpamComponent.get(context).spamSettings().percentOfNonSpamNotificationsToShow();
     if (thresholdForShowing == 0) {
       LogUtil.d(
           "SpamCallListListener.shouldThrottleNonSpamNotification",
@@ -391,14 +393,11 @@ public class SpamCallListListener implements CallList.Listener {
         createAfterCallNotificationBuilder(call)
             .setLargeIcon(Icon.createWithResource(context, R.drawable.spam_notification_icon))
             .setContentText(context.getString(R.string.spam_notification_spam_call_collapsed_text))
-            .setStyle(
-                new Notification.BigTextStyle()
-                    .bigText(context.getString(R.string.spam_notification_spam_call_expanded_text)))
             // Not spam
             .addAction(
                 new Notification.Action.Builder(
                         R.drawable.quantum_ic_close_vd_theme_24,
-                        context.getString(R.string.spam_notification_not_spam_action_text),
+                        context.getString(R.string.spam_notification_was_not_spam_action_text),
                         createNotSpamPendingIntent(call))
                     .build())
             // Block/report spam
@@ -420,7 +419,7 @@ public class SpamCallListListener implements CallList.Listener {
    */
   private PendingIntent createBlockReportSpamPendingIntent(DialerCall call) {
     String action = SpamNotificationActivity.ACTION_MARK_NUMBER_AS_SPAM;
-    return SpamComponent.get(context).spam().isDialogEnabledForSpamNotification()
+    return SpamComponent.get(context).spamSettings().isDialogEnabledForSpamNotification()
         ? createActivityPendingIntent(call, action)
         : createServicePendingIntent(call, action);
   }
@@ -431,7 +430,7 @@ public class SpamCallListListener implements CallList.Listener {
    */
   private PendingIntent createNotSpamPendingIntent(DialerCall call) {
     String action = SpamNotificationActivity.ACTION_MARK_NUMBER_AS_NOT_SPAM;
-    return SpamComponent.get(context).spam().isDialogEnabledForSpamNotification()
+    return SpamComponent.get(context).spamSettings().isDialogEnabledForSpamNotification()
         ? createActivityPendingIntent(call, action)
         : createServicePendingIntent(call, action);
   }
@@ -455,6 +454,6 @@ public class SpamCallListListener implements CallList.Listener {
   }
 
   static String getNotificationTagForCall(@NonNull DialerCall call) {
-    return NOTIFICATION_TAG_PREFIX + call.getNumber();
+    return NOTIFICATION_TAG_PREFIX + call.getUniqueCallId();
   }
 }

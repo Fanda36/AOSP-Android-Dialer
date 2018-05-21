@@ -20,8 +20,12 @@ import android.content.Context;
 import android.database.Cursor;
 import android.provider.CallLog.Calls;
 import android.support.v4.content.CursorLoader;
+import android.text.TextUtils;
 import com.android.dialer.DialerPhoneNumber;
+import com.android.dialer.NumberAttributes;
 import com.android.dialer.calllog.database.contract.AnnotatedCallLogContract.AnnotatedCallLog;
+import com.android.dialer.common.Assert;
+import com.android.dialer.common.LogUtil;
 import com.android.dialer.voicemail.model.VoicemailEntry;
 import com.google.protobuf.InvalidProtocolBufferException;
 
@@ -33,33 +37,35 @@ final class VoicemailCursorLoader extends CursorLoader {
       new String[] {
         AnnotatedCallLog._ID,
         AnnotatedCallLog.TIMESTAMP,
-        AnnotatedCallLog.NAME,
         AnnotatedCallLog.NUMBER,
         AnnotatedCallLog.FORMATTED_NUMBER,
-        AnnotatedCallLog.PHOTO_URI,
-        AnnotatedCallLog.PHOTO_ID,
-        AnnotatedCallLog.LOOKUP_URI,
         AnnotatedCallLog.DURATION,
         AnnotatedCallLog.GEOCODED_LOCATION,
         AnnotatedCallLog.CALL_TYPE,
         AnnotatedCallLog.TRANSCRIPTION,
-        AnnotatedCallLog.VOICEMAIL_URI
+        AnnotatedCallLog.VOICEMAIL_URI,
+        AnnotatedCallLog.IS_READ,
+        AnnotatedCallLog.NUMBER_ATTRIBUTES,
+        AnnotatedCallLog.TRANSCRIPTION_STATE,
+        AnnotatedCallLog.PHONE_ACCOUNT_COMPONENT_NAME,
+        AnnotatedCallLog.PHONE_ACCOUNT_ID,
       };
 
   // Indexes for VOICEMAIL_COLUMNS
   private static final int ID = 0;
   private static final int TIMESTAMP = 1;
-  private static final int NAME = 2;
-  private static final int NUMBER = 3;
-  private static final int FORMATTED_NUMBER = 4;
-  private static final int PHOTO_URI = 5;
-  private static final int PHOTO_ID = 6;
-  private static final int LOOKUP_URI = 7;
-  private static final int DURATION = 8;
-  private static final int GEOCODED_LOCATION = 9;
-  private static final int CALL_TYPE = 10;
-  private static final int TRANSCRIPTION = 11;
-  private static final int VOICEMAIL_URI = 12;
+  private static final int NUMBER = 2;
+  private static final int FORMATTED_NUMBER = 3;
+  private static final int DURATION = 4;
+  private static final int GEOCODED_LOCATION = 5;
+  private static final int CALL_TYPE = 6;
+  private static final int TRANSCRIPTION = 7;
+  private static final int VOICEMAIL_URI = 8;
+  private static final int IS_READ = 9;
+  private static final int NUMBER_ATTRIBUTES = 10;
+  private static final int TRANSCRIPTION_STATE = 11;
+  private static final int PHONE_ACCOUNT_COMPONENT_NAME = 12;
+  private static final int PHONE_ACCOUNT_ID = 13;
 
   // TODO(zachh): Optimize indexes
   VoicemailCursorLoader(Context context) {
@@ -80,22 +86,62 @@ final class VoicemailCursorLoader extends CursorLoader {
     } catch (InvalidProtocolBufferException e) {
       throw new IllegalStateException("Couldn't parse DialerPhoneNumber bytes");
     }
+    NumberAttributes numberAttributes;
+    try {
+      numberAttributes = NumberAttributes.parseFrom(cursor.getBlob(NUMBER_ATTRIBUTES));
+    } catch (InvalidProtocolBufferException e) {
+      throw new IllegalStateException("Couldn't parse NumberAttributes bytes");
+    }
 
-    return VoicemailEntry.builder()
-        .setId(cursor.getInt(ID))
-        .setTimestamp(cursor.getLong(TIMESTAMP))
-        .setName(cursor.getString(NAME))
-        .setNumber(number)
-        .setFormattedNumber(cursor.getString(FORMATTED_NUMBER))
-        .setPhotoUri(cursor.getString(PHOTO_URI))
-        .setPhotoId(cursor.getLong(PHOTO_ID))
-        .setLookupUri(cursor.getString(LOOKUP_URI))
-        .setDuration(cursor.getLong(DURATION))
-        .setTranscription(cursor.getString(TRANSCRIPTION))
-        .setVoicemailUri(cursor.getString(VOICEMAIL_URI))
-        .setGeocodedLocation(cursor.getString(GEOCODED_LOCATION))
-        .setCallType(cursor.getInt(CALL_TYPE))
-        .build();
+    // Voicemail numbers should always be valid so the CP2 information should never be incomplete,
+    // and there should be no need to query PhoneLookup at render time.
+    Assert.checkArgument(
+        !numberAttributes.getIsCp2InfoIncomplete(),
+        "CP2 info incomplete for number: %s",
+        LogUtil.sanitizePii(number.getNormalizedNumber()));
+
+    VoicemailEntry.Builder voicemailEntryBuilder =
+        VoicemailEntry.newBuilder()
+            .setId(cursor.getInt(ID))
+            .setTimestamp(cursor.getLong(TIMESTAMP))
+            .setNumber(number)
+            .setDuration(cursor.getLong(DURATION))
+            .setCallType(cursor.getInt(CALL_TYPE))
+            .setIsRead(cursor.getInt(IS_READ))
+            .setNumberAttributes(numberAttributes)
+            .setTranscriptionState(cursor.getInt(TRANSCRIPTION_STATE));
+
+    String formattedNumber = cursor.getString(FORMATTED_NUMBER);
+    if (!TextUtils.isEmpty(formattedNumber)) {
+      voicemailEntryBuilder.setFormattedNumber(formattedNumber);
+    }
+
+    String geocodedLocation = cursor.getString(GEOCODED_LOCATION);
+    if (!TextUtils.isEmpty(geocodedLocation)) {
+      voicemailEntryBuilder.setGeocodedLocation(geocodedLocation);
+    }
+
+    String transcription = cursor.getString(TRANSCRIPTION);
+    if (!TextUtils.isEmpty(transcription)) {
+      voicemailEntryBuilder.setTranscription(transcription);
+    }
+
+    String voicemailUri = cursor.getString(VOICEMAIL_URI);
+    if (!TextUtils.isEmpty(voicemailUri)) {
+      voicemailEntryBuilder.setVoicemailUri(voicemailUri);
+    }
+
+    String phoneAccountComponentName = cursor.getString(PHONE_ACCOUNT_COMPONENT_NAME);
+    if (!TextUtils.isEmpty(phoneAccountComponentName)) {
+      voicemailEntryBuilder.setPhoneAccountComponentName(phoneAccountComponentName);
+    }
+
+    String phoneAccountId = cursor.getString(PHONE_ACCOUNT_ID);
+    if (!TextUtils.isEmpty(phoneAccountId)) {
+      voicemailEntryBuilder.setPhoneAccountId(phoneAccountId);
+    }
+
+    return voicemailEntryBuilder.build();
   }
 
   static long getTimestamp(Cursor cursor) {

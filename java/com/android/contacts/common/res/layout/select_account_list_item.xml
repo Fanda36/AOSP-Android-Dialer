@@ -42,7 +42,7 @@
       android:orientation="vertical">
     <TextView
         android:id="@+id/label"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:includeFontPadding="false"
         android:textAppearance="?android:attr/textAppearanceMedium"
@@ -54,14 +54,15 @@
         android:includeFontPadding="false"
         android:maxLines="1"
         android:textAppearance="?android:attr/textAppearanceSmall"
+        android:textColor="@color/dialer_secondary_text_color"
         android:visibility="gone"/>
     <TextView
         android:id="@+id/hint"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:includeFontPadding="false"
-        android:maxLines="1"
         android:textAppearance="?android:attr/textAppearanceSmall"
+        android:textColor="@color/dialer_secondary_text_color"
         android:visibility="gone"/>
   </LinearLayout>
 

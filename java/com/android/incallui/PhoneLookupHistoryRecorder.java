@@ -19,25 +19,18 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.support.annotation.Nullable;
 import android.telecom.Call;
-import android.telecom.PhoneAccountHandle;
-import android.telephony.PhoneNumberUtils;
-import android.telephony.SubscriptionInfo;
-import android.text.TextUtils;
-import com.android.dialer.buildtype.BuildType;
+import com.android.dialer.calllog.config.CallLogConfigComponent;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.common.concurrent.DialerExecutors;
-import com.android.dialer.location.CountryDetector;
+import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.phonelookup.PhoneLookupComponent;
 import com.android.dialer.phonelookup.PhoneLookupInfo;
 import com.android.dialer.phonelookup.database.contract.PhoneLookupHistoryContract.PhoneLookupHistory;
-import com.android.dialer.telecom.TelecomUtil;
-import com.android.incallui.util.TelecomCallUtil;
+import com.android.dialer.telecom.TelecomCallUtil;
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import java.util.Locale;
 
 /**
  * Fetches the current {@link PhoneLookupInfo} for the provided call and writes it to the
@@ -46,22 +39,25 @@ import java.util.Locale;
 final class PhoneLookupHistoryRecorder {
 
   /**
-   * If the new UI is enabled, fetches the current {@link PhoneLookupInfo} for the provided call and
-   * writes it to the PhoneLookupHistory. Otherwise does nothing.
+   * If the call log framework is enabled, fetches the current {@link PhoneLookupInfo} for the
+   * provided call and writes it to the PhoneLookupHistory. Otherwise does nothing.
    */
   static void recordPhoneLookupInfo(Context appContext, Call call) {
-    if (!(BuildType.get() == BuildType.BUGFOOD || LogUtil.isDebugEnabled())) {
+    if (!CallLogConfigComponent.get(appContext).callLogConfig().isCallLogFrameworkEnabled()) {
       return;
     }
-    ListenableFuture<PhoneLookupInfo> future =
-        PhoneLookupComponent.get(appContext).phoneLookup().lookup(call);
+
+    ListenableFuture<PhoneLookupInfo> infoFuture =
+        PhoneLookupComponent.get(appContext).compositePhoneLookup().lookup(call);
+
     Futures.addCallback(
-        future,
+        infoFuture,
         new FutureCallback<PhoneLookupInfo>() {
           @Override
           public void onSuccess(@Nullable PhoneLookupInfo result) {
             Assert.checkArgument(result != null);
-            Optional<String> normalizedNumber = getNormalizedNumber(appContext, call);
+            Optional<String> normalizedNumber =
+                TelecomCallUtil.getNormalizedNumber(appContext, call);
             if (!normalizedNumber.isPresent()) {
               LogUtil.w("PhoneLookupHistoryRecorder.onSuccess", "couldn't get a number");
               return;
@@ -72,10 +68,7 @@ final class PhoneLookupHistoryRecorder {
             appContext
                 .getContentResolver()
                 .update(
-                    PhoneLookupHistory.CONTENT_URI
-                        .buildUpon()
-                        .appendEncodedPath(normalizedNumber.get())
-                        .build(),
+                    PhoneLookupHistory.contentUriForNumber(normalizedNumber.get()),
                     contentValues,
                     null,
                     null);
@@ -88,29 +81,6 @@ final class PhoneLookupHistoryRecorder {
                 "PhoneLookupHistoryRecorder.onFailure", "could not write PhoneLookupHistory", t);
           }
         },
-        DialerExecutors.getLowPriorityThreadPool(appContext));
-  }
-
-  private static Optional<String> getNormalizedNumber(Context appContext, Call call) {
-    PhoneAccountHandle phoneAccountHandle = call.getDetails().getAccountHandle();
-    Optional<SubscriptionInfo> subscriptionInfo =
-        TelecomUtil.getSubscriptionInfo(appContext, phoneAccountHandle);
-    String countryCode =
-        subscriptionInfo.isPresent()
-            ? subscriptionInfo.get().getCountryIso()
-            : CountryDetector.getInstance(appContext).getCurrentCountryIso();
-    if (countryCode == null) {
-      LogUtil.w(
-          "PhoneLookupHistoryRecorder.getNormalizedNumber",
-          "couldn't find a country code for call");
-      countryCode = "US";
-    }
-    String rawNumber = TelecomCallUtil.getNumber(call);
-    if (TextUtils.isEmpty(rawNumber)) {
-      return Optional.absent();
-    }
-    String normalizedNumber =
-        PhoneNumberUtils.formatNumberToE164(rawNumber, countryCode.toUpperCase(Locale.US));
-    return normalizedNumber == null ? Optional.of(rawNumber) : Optional.of(normalizedNumber);
+        DialerExecutorComponent.get(appContext).backgroundExecutor());
   }
 }

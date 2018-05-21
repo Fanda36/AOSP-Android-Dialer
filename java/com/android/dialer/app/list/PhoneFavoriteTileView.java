@@ -32,7 +32,6 @@ import com.android.dialer.app.R;
 import com.android.dialer.callintent.CallInitiationType;
 import com.android.dialer.callintent.CallSpecificAppData;
 import com.android.dialer.callintent.SpeedDialContactType;
-import com.android.dialer.common.LogUtil;
 import com.android.dialer.contactphoto.ContactPhotoManager.DefaultImageRequest;
 import com.android.dialer.lettertile.LetterTileDrawable;
 import com.android.dialer.logging.InteractionEvent;
@@ -60,9 +59,10 @@ public abstract class PhoneFavoriteTileView extends ContactTileView {
   // don't crash with an NPE if the drag shadow is released in their bounds
   private static final ClipData EMPTY_CLIP_DATA = ClipData.newPlainText("", "");
   /** View that contains the transparent shadow that is overlaid on top of the contact image. */
-  private View mShadowOverlay;
+  private View shadowOverlay;
   /** Users' most frequent phone number. */
-  private String mPhoneNumberString;
+  private String phoneNumberString;
+
   private boolean isPinned;
   private boolean isStarred;
   private int position = -1;
@@ -74,7 +74,7 @@ public abstract class PhoneFavoriteTileView extends ContactTileView {
   @Override
   protected void onFinishInflate() {
     super.onFinishInflate();
-    mShadowOverlay = findViewById(R.id.shadow_overlay);
+    shadowOverlay = findViewById(R.id.shadow_overlay);
 
     setOnLongClickListener(
         new OnLongClickListener() {
@@ -93,13 +93,13 @@ public abstract class PhoneFavoriteTileView extends ContactTileView {
   public void loadFromContact(ContactEntry entry) {
     super.loadFromContact(entry);
     // Set phone number to null in case we're reusing the view.
-    mPhoneNumberString = null;
+    phoneNumberString = null;
     isPinned = (entry.pinned != PinnedPositions.UNPINNED);
     isStarred = entry.isFavorite;
     if (entry != null) {
       sendViewNotification(getContext(), entry.lookupUri);
       // Grab the phone-number to call directly. See {@link onClick()}.
-      mPhoneNumberString = entry.phoneNumber;
+      phoneNumberString = entry.phoneNumber;
 
       // If this is a blank entry, don't show anything. For this to truly look like an empty row
       // the entire ContactTileRow needs to be hidden.
@@ -141,7 +141,7 @@ public abstract class PhoneFavoriteTileView extends ContactTileView {
           callSpecificAppData.addSpeedDialContactType(SpeedDialContactType.Type.PINNED_CONTACT);
         }
 
-        if (TextUtils.isEmpty(mPhoneNumberString)) {
+        if (TextUtils.isEmpty(phoneNumberString)) {
           // Don't set performance report now, since user may spend some time on picking a number
 
           // Copy "superclass" implementation
@@ -156,7 +156,7 @@ public abstract class PhoneFavoriteTileView extends ContactTileView {
           // call them at the number that you usually talk to them
           // at (i.e. the one displayed in the UI), regardless of
           // whether that's their default number.
-          mListener.onCallNumberDirectly(mPhoneNumberString, callSpecificAppData.build());
+          mListener.onCallNumberDirectly(phoneNumberString, callSpecificAppData.build());
         }
       }
     };
@@ -176,8 +176,8 @@ public abstract class PhoneFavoriteTileView extends ContactTileView {
   @Override
   protected void configureViewForImage(boolean isDefaultImage) {
     // Hide the shadow overlay if the image is a default image (i.e. colored letter tile)
-    if (mShadowOverlay != null) {
-      mShadowOverlay.setVisibility(isDefaultImage ? View.GONE : View.VISIBLE);
+    if (shadowOverlay != null) {
+      shadowOverlay.setVisibility(isDefaultImage ? View.GONE : View.VISIBLE);
     }
   }
 
@@ -191,21 +191,20 @@ public abstract class PhoneFavoriteTileView extends ContactTileView {
     this.position = position;
   }
 
+  private ContactLoader loader;
+
   /**
    * Send a notification using a {@link ContactLoader} to inform the sync adapter that we are
    * viewing a particular contact, so that it can download the high-res photo.
    */
-  private static void sendViewNotification(Context context, Uri contactUri) {
-    ContactLoader loader = new ContactLoader(context, contactUri, true /* postViewNotification */);
-    loader.registerListener(
-        0,
-        (loader1, contact) -> {
-          try {
-            loader1.reset();
-          } catch (RuntimeException e) {
-            LogUtil.e("PhoneFavoriteTileView.onLoadComplete", "error resetting loader", e);
-          }
-        });
+  private void sendViewNotification(Context context, Uri contactUri) {
+    if (loader != null) {
+      // Cancels the current load if it's running and clears up any memory if it's using any.
+      loader.reset();
+    }
+    loader = new ContactLoader(context, contactUri, true /* postViewNotification */);
+    // Immediately release anything we're holding in memory
+    loader.registerListener(0, (loader1, contact) -> loader.reset());
     loader.startLoading();
   }
 }

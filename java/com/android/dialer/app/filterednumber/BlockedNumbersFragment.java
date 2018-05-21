@@ -29,7 +29,6 @@ import android.support.v7.app.AppCompatActivity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ImageView;
 import android.widget.TextView;
 import com.android.dialer.app.R;
 import com.android.dialer.blocking.BlockedNumbersMigrator;
@@ -53,11 +52,11 @@ public class BlockedNumbersFragment extends ListFragment
   private BlockedNumbersMigrator blockedNumbersMigratorForTest;
   private TextView blockedNumbersText;
   private TextView footerText;
-  private BlockedNumbersAdapter mAdapter;
-  private VisualVoicemailEnabledChecker mVoicemailEnabledChecker;
-  private View mImportSettings;
-  private View mBlockedNumbersDisabledForEmergency;
-  private View mBlockedNumberListDivider;
+  private BlockedNumbersAdapter adapter;
+  private VisualVoicemailEnabledChecker voicemailEnabledChecker;
+  private View importSettings;
+  private View blockedNumbersDisabledForEmergency;
+  private View blockedNumberListDivider;
 
   @Override
   public Context getContext() {
@@ -73,35 +72,32 @@ public class BlockedNumbersFragment extends ListFragment
     getListView().addHeaderView(inflater.inflate(R.layout.blocked_number_header, null));
     getListView().addFooterView(inflater.inflate(R.layout.blocked_number_footer, null));
     //replace the icon for add number with LetterTileDrawable(), so it will have identical style
-    ImageView addNumberIcon = (ImageView) getActivity().findViewById(R.id.add_number_icon);
     LetterTileDrawable drawable = new LetterTileDrawable(getResources());
     drawable.setLetter(ADD_BLOCKED_NUMBER_ICON_LETTER);
     drawable.setColor(
         ActivityCompat.getColor(getActivity(), R.color.add_blocked_number_icon_color));
     drawable.setIsCircular(true);
-    addNumberIcon.setImageDrawable(drawable);
 
-    if (mAdapter == null) {
-      mAdapter =
+    if (adapter == null) {
+      adapter =
           BlockedNumbersAdapter.newBlockedNumbersAdapter(
               getContext(), getActivity().getFragmentManager());
     }
-    setListAdapter(mAdapter);
+    setListAdapter(adapter);
 
     blockedNumbersText = (TextView) getListView().findViewById(R.id.blocked_number_text_view);
     migratePromoView = getListView().findViewById(R.id.migrate_promo);
     getListView().findViewById(R.id.migrate_promo_allow_button).setOnClickListener(this);
-    mImportSettings = getListView().findViewById(R.id.import_settings);
-    mBlockedNumbersDisabledForEmergency =
+    importSettings = getListView().findViewById(R.id.import_settings);
+    blockedNumbersDisabledForEmergency =
         getListView().findViewById(R.id.blocked_numbers_disabled_for_emergency);
-    mBlockedNumberListDivider = getActivity().findViewById(R.id.blocked_number_list_divider);
+    blockedNumberListDivider = getActivity().findViewById(R.id.blocked_number_list_divider);
     getListView().findViewById(R.id.import_button).setOnClickListener(this);
     getListView().findViewById(R.id.view_numbers_button).setOnClickListener(this);
-    getListView().findViewById(R.id.add_number_linear_layout).setOnClickListener(this);
 
     footerText = (TextView) getActivity().findViewById(R.id.blocked_number_footer_textview);
-    mVoicemailEnabledChecker = new VisualVoicemailEnabledChecker(getContext(), this);
-    mVoicemailEnabledChecker.asyncUpdate();
+    voicemailEnabledChecker = new VisualVoicemailEnabledChecker(getContext(), this);
+    voicemailEnabledChecker.asyncUpdate();
     updateActiveVoicemailProvider();
   }
 
@@ -137,13 +133,11 @@ public class BlockedNumbersFragment extends ListFragment
     if (FilteredNumberCompat.canUseNewFiltering()) {
       migratePromoView.setVisibility(View.VISIBLE);
       blockedNumbersText.setVisibility(View.GONE);
-      getListView().findViewById(R.id.add_number_linear_layout).setVisibility(View.GONE);
-      getListView().findViewById(R.id.add_number_linear_layout).setOnClickListener(null);
-      mBlockedNumberListDivider.setVisibility(View.GONE);
-      mImportSettings.setVisibility(View.GONE);
+      blockedNumberListDivider.setVisibility(View.GONE);
+      importSettings.setVisibility(View.GONE);
       getListView().findViewById(R.id.import_button).setOnClickListener(null);
       getListView().findViewById(R.id.view_numbers_button).setOnClickListener(null);
-      mBlockedNumbersDisabledForEmergency.setVisibility(View.GONE);
+      blockedNumbersDisabledForEmergency.setVisibility(View.GONE);
       footerText.setVisibility(View.GONE);
     } else {
       FilteredNumbersUtil.checkForSendToVoicemailContact(
@@ -152,7 +146,7 @@ public class BlockedNumbersFragment extends ListFragment
             @Override
             public void onComplete(boolean hasSendToVoicemailContact) {
               final int visibility = hasSendToVoicemailContact ? View.VISIBLE : View.GONE;
-              mImportSettings.setVisibility(visibility);
+              importSettings.setVisibility(visibility);
             }
           });
     }
@@ -160,12 +154,12 @@ public class BlockedNumbersFragment extends ListFragment
     // All views except migrate and the block list are hidden when new filtering is available
     if (!FilteredNumberCompat.canUseNewFiltering()
         && FilteredNumbersUtil.hasRecentEmergencyCall(getContext())) {
-      mBlockedNumbersDisabledForEmergency.setVisibility(View.VISIBLE);
+      blockedNumbersDisabledForEmergency.setVisibility(View.VISIBLE);
     } else {
-      mBlockedNumbersDisabledForEmergency.setVisibility(View.GONE);
+      blockedNumbersDisabledForEmergency.setVisibility(View.GONE);
     }
 
-    mVoicemailEnabledChecker.asyncUpdate();
+    voicemailEnabledChecker.asyncUpdate();
   }
 
   @Override
@@ -197,17 +191,17 @@ public class BlockedNumbersFragment extends ListFragment
 
   @Override
   public void onLoadFinished(Loader<Cursor> loader, Cursor data) {
-    mAdapter.swapCursor(data);
+    adapter.swapCursor(data);
     if (FilteredNumberCompat.canUseNewFiltering() || data.getCount() == 0) {
-      mBlockedNumberListDivider.setVisibility(View.INVISIBLE);
+      blockedNumberListDivider.setVisibility(View.INVISIBLE);
     } else {
-      mBlockedNumberListDivider.setVisibility(View.VISIBLE);
+      blockedNumberListDivider.setVisibility(View.VISIBLE);
     }
   }
 
   @Override
   public void onLoaderReset(Loader<Cursor> loader) {
-    mAdapter.swapCursor(null);
+    adapter.swapCursor(null);
   }
 
   @Override
@@ -218,9 +212,7 @@ public class BlockedNumbersFragment extends ListFragment
     }
 
     int resId = view.getId();
-    if (resId == R.id.add_number_linear_layout) {
-      activity.showSearchUi();
-    } else if (resId == R.id.view_numbers_button) {
+    if (resId == R.id.view_numbers_button) {
       activity.showNumbersToImportPreviewUi();
     } else if (resId == R.id.import_button) {
       FilteredNumbersUtil.importSendToVoicemailContacts(
@@ -228,7 +220,7 @@ public class BlockedNumbersFragment extends ListFragment
           new ImportSendToVoicemailContactsListener() {
             @Override
             public void onImportComplete() {
-              mImportSettings.setVisibility(View.GONE);
+              importSettings.setVisibility(View.GONE);
             }
           });
     } else if (resId == R.id.migrate_promo_allow_button) {
@@ -259,7 +251,7 @@ public class BlockedNumbersFragment extends ListFragment
     if (getActivity() == null || getActivity().isFinishing()) {
       return;
     }
-    if (mVoicemailEnabledChecker.isVisualVoicemailEnabled()) {
+    if (voicemailEnabledChecker.isVisualVoicemailEnabled()) {
       footerText.setText(R.string.block_number_footer_message_vvm);
     } else {
       footerText.setText(R.string.block_number_footer_message_no_vvm);

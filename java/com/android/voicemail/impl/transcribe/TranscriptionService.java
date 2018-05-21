@@ -63,8 +63,7 @@ public class TranscriptionService extends JobService {
   }
 
   // Schedule a task to transcribe the indicated voicemail, return true if transcription task was
-  // scheduled. If the PhoneAccountHandle is null then the voicemail will not be considered for
-  // donation.
+  // scheduled.
   @MainThread
   public static boolean scheduleNewVoicemailTranscriptionJob(
       Context context, Uri voicemailUri, PhoneAccountHandle account, boolean highPriority) {
@@ -99,6 +98,10 @@ public class TranscriptionService extends JobService {
       return false;
     }
     VoicemailClient client = VoicemailComponent.get(context).getVoicemailClient();
+    if (!client.isVoicemailTranscriptionEnabled(context, account)) {
+      LogUtil.i("TranscriptionService.canTranscribeVoicemail", "transcription is not enabled");
+      return false;
+    }
     if (!client.hasAcceptedTos(context, account)) {
       LogUtil.i("TranscriptionService.canTranscribeVoicemail", "hasn't accepted TOS");
       return false;
@@ -142,8 +145,8 @@ public class TranscriptionService extends JobService {
   public boolean onStartJob(JobParameters params) {
     Assert.isMainThread();
     LogUtil.enterBlock("TranscriptionService.onStartJob");
-    if (!getConfigProvider().isVoicemailTranscriptionEnabled()) {
-      LogUtil.i("TranscriptionService.onStartJob", "transcription not enabled, exiting.");
+    if (!getConfigProvider().isVoicemailTranscriptionAvailable()) {
+      LogUtil.i("TranscriptionService.onStartJob", "transcription not available, exiting.");
       return false;
     } else if (TextUtils.isEmpty(getConfigProvider().getServerAddress())) {
       LogUtil.i("TranscriptionService.onStartJob", "transcription server not configured, exiting.");

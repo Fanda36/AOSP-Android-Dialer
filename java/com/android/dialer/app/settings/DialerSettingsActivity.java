@@ -40,6 +40,7 @@ import com.android.dialer.common.LogUtil;
 import com.android.dialer.compat.telephony.TelephonyManagerCompat;
 import com.android.dialer.configprovider.ConfigProviderBindings;
 import com.android.dialer.proguard.UsedByReflection;
+import com.android.dialer.util.PermissionsUtil;
 import com.android.dialer.voicemail.settings.VoicemailSettingsFragment;
 import com.android.voicemail.VoicemailClient;
 import java.util.List;
@@ -49,7 +50,7 @@ import java.util.List;
 @UsedByReflection(value = "AndroidManifest-app.xml")
 public class DialerSettingsActivity extends AppCompatPreferenceActivity {
 
-  protected SharedPreferences mPreferences;
+  protected SharedPreferences preferences;
   private boolean migrationStatusOnBuildHeaders;
   private List<Header> headers;
 
@@ -57,7 +58,7 @@ public class DialerSettingsActivity extends AppCompatPreferenceActivity {
   protected void onCreate(Bundle savedInstanceState) {
     LogUtil.enterBlock("DialerSettingsActivity.onCreate");
     super.onCreate(savedInstanceState);
-    mPreferences = PreferenceManager.getDefaultSharedPreferences(this.getApplicationContext());
+    preferences = PreferenceManager.getDefaultSharedPreferences(this.getApplicationContext());
 
     Intent intent = getIntent();
     Uri data = intent.getData();
@@ -101,7 +102,6 @@ public class DialerSettingsActivity extends AppCompatPreferenceActivity {
 
     Header soundSettingsHeader = new Header();
     soundSettingsHeader.titleRes = R.string.sounds_and_vibration_title;
-    soundSettingsHeader.fragment = SoundSettingsFragment.class.getName();
     soundSettingsHeader.id = R.id.settings_header_sounds_and_vibration;
     target.add(soundSettingsHeader);
 
@@ -128,7 +128,7 @@ public class DialerSettingsActivity extends AppCompatPreferenceActivity {
       callSettingsHeader.titleRes = R.string.call_settings_label;
       callSettingsHeader.intent = callSettingsIntent;
       target.add(callSettingsHeader);
-    } else if ((VERSION.SDK_INT >= VERSION_CODES.N) || isPrimaryUser) {
+    } else if (isPrimaryUser) {
       Header phoneAccountSettingsHeader = new Header();
       Intent phoneAccountSettingsIntent = new Intent(TelecomManager.ACTION_CHANGE_PHONE_ACCOUNTS);
       phoneAccountSettingsIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -194,6 +194,11 @@ public class DialerSettingsActivity extends AppCompatPreferenceActivity {
       return;
     }
 
+    if (!PermissionsUtil.hasReadPhoneStatePermissions(this)) {
+      LogUtil.i("DialerSettingsActivity.addVoicemailSettings", "Missing READ_PHONE_STATE");
+      return;
+    }
+
     LogUtil.i("DialerSettingsActivity.addVoicemailSettings", "adding voicemail settings");
     Header voicemailSettings = new Header();
     voicemailSettings.titleRes = R.string.voicemail_settings_label;
@@ -236,6 +241,9 @@ public class DialerSettingsActivity extends AppCompatPreferenceActivity {
     PhoneAccountHandle result = null;
     for (PhoneAccountHandle phoneAccountHandle : telecomManager.getCallCapablePhoneAccounts()) {
       PhoneAccount phoneAccount = telecomManager.getPhoneAccount(phoneAccountHandle);
+      if (phoneAccount == null) {
+        continue;
+      }
       if (phoneAccount.hasCapabilities(PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION)) {
         LogUtil.i(
             "DialerSettingsActivity.getSoleSimAccount", phoneAccountHandle + " is a SIM account");
@@ -265,22 +273,32 @@ public class DialerSettingsActivity extends AppCompatPreferenceActivity {
         && getResources().getBoolean(R.bool.config_sort_order_user_changeable);
   }
 
+  /**
+   * For the "sounds and vibration" setting, we go directly to the system sound settings fragment.
+   * This helps since:
+   * <li>We don't need a separate Dialer sounds and vibrations fragment, as everything we need is
+   *     present in the system sounds fragment.
+   * <li>OEM's e.g Moto that support dual sim ring-tones no longer need to update the dialer sound
+   *     and settings fragment.
+   *
+   *     <p>For all other settings, we launch our our preferences fragment.
+   */
   @Override
   public void onHeaderClick(Header header, int position) {
     if (header.id == R.id.settings_header_sounds_and_vibration) {
-      // If we don't have the permission to write to system settings, go to system sound
-      // settings instead. Otherwise, perform the super implementation (which launches our
-      // own preference fragment.
+
       if (!Settings.System.canWrite(this)) {
         Toast.makeText(
                 this,
                 getResources().getString(R.string.toast_cannot_write_system_settings),
                 Toast.LENGTH_SHORT)
             .show();
-        startActivity(new Intent(Settings.ACTION_SOUND_SETTINGS));
-        return;
       }
+
+      startActivity(new Intent(Settings.ACTION_SOUND_SETTINGS));
+      return;
     }
+
     super.onHeaderClick(header, position);
   }
 

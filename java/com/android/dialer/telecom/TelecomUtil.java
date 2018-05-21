@@ -18,6 +18,7 @@ package com.android.dialer.telecom;
 
 import android.Manifest;
 import android.Manifest.permission;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -49,10 +50,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * perform the required check and return the fallback default if the permission is missing,
  * otherwise return the value from TelecomManager.
  */
+@SuppressWarnings({"MissingPermission", "Guava"})
 public abstract class TelecomUtil {
 
   private static final String TAG = "TelecomUtil";
-  private static boolean sWarningLogged = false;
+  private static boolean warningLogged = false;
 
   private static TelecomUtilImpl instance = new TelecomUtilImpl();
 
@@ -143,9 +145,38 @@ public abstract class TelecomUtil {
 
   public static List<PhoneAccountHandle> getCallCapablePhoneAccounts(Context context) {
     if (hasReadPhoneStatePermission(context)) {
-      return getTelecomManager(context).getCallCapablePhoneAccounts();
+      return Optional.fromNullable(getTelecomManager(context).getCallCapablePhoneAccounts())
+          .or(new ArrayList<>());
     }
     return new ArrayList<>();
+  }
+
+  /** Return a list of phone accounts that are subscription/SIM accounts. */
+  public static List<PhoneAccountHandle> getSubscriptionPhoneAccounts(Context context) {
+    List<PhoneAccountHandle> subscriptionAccountHandles = new ArrayList<>();
+    final List<PhoneAccountHandle> accountHandles =
+        TelecomUtil.getCallCapablePhoneAccounts(context);
+    for (PhoneAccountHandle accountHandle : accountHandles) {
+      PhoneAccount account = TelecomUtil.getPhoneAccount(context, accountHandle);
+      if (account.hasCapabilities(PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION)) {
+        subscriptionAccountHandles.add(accountHandle);
+      }
+    }
+    return subscriptionAccountHandles;
+  }
+
+  /** Compose {@link PhoneAccountHandle} object from component name and account id. */
+  @Nullable
+  public static PhoneAccountHandle composePhoneAccountHandle(
+      @Nullable String componentString, @Nullable String accountId) {
+    if (TextUtils.isEmpty(componentString) || TextUtils.isEmpty(accountId)) {
+      return null;
+    }
+    final ComponentName componentName = ComponentName.unflattenFromString(componentString);
+    if (componentName == null) {
+      return null;
+    }
+    return new PhoneAccountHandle(componentName, accountId);
   }
 
   /**
@@ -155,6 +186,9 @@ public abstract class TelecomUtil {
   public static Optional<SubscriptionInfo> getSubscriptionInfo(
       @NonNull Context context, @NonNull PhoneAccountHandle phoneAccountHandle) {
     if (TextUtils.isEmpty(phoneAccountHandle.getId())) {
+      return Optional.absent();
+    }
+    if (!hasPermission(context, permission.READ_PHONE_STATE)) {
       return Optional.absent();
     }
     SubscriptionManager subscriptionManager = context.getSystemService(SubscriptionManager.class);
@@ -175,6 +209,10 @@ public abstract class TelecomUtil {
    * are not included.
    */
   public static boolean isInManagedCall(Context context) {
+    return instance.isInManagedCall(context);
+  }
+
+  public static boolean isInCall(Context context) {
     return instance.isInCall(context);
   }
 
@@ -274,6 +312,9 @@ public abstract class TelecomUtil {
     TelecomManager telecomManager = context.getSystemService(TelecomManager.class);
     for (PhoneAccountHandle phoneAccountHandle : telecomManager.getCallCapablePhoneAccounts()) {
       PhoneAccount phoneAccount = telecomManager.getPhoneAccount(phoneAccountHandle);
+      if (phoneAccount == null) {
+        continue;
+      }
       if (phoneAccount.hasCapabilities(PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION)
           && !phoneAccountHandle.equals(currentAccount)) {
         return phoneAccountHandle;
@@ -286,7 +327,7 @@ public abstract class TelecomUtil {
   @VisibleForTesting()
   public static class TelecomUtilImpl {
 
-    public boolean isInCall(Context context) {
+    public boolean isInManagedCall(Context context) {
       if (hasReadPhoneStatePermission(context)) {
         // The TelecomManager#isInCall method returns true anytime the user is in a call.
         // Starting in O, the APIs include support for self-managed ConnectionServices so that other
@@ -305,6 +346,10 @@ public abstract class TelecomUtil {
       return false;
     }
 
+    public boolean isInCall(Context context) {
+      return hasReadPhoneStatePermission(context) && getTelecomManager(context).isInCall();
+    }
+
     public boolean hasPermission(Context context, String permission) {
       return ContextCompat.checkSelfPermission(context, permission)
           == PackageManager.PERMISSION_GRANTED;
@@ -315,12 +360,12 @@ public abstract class TelecomUtil {
           TextUtils.equals(
               context.getPackageName(), getTelecomManager(context).getDefaultDialerPackage());
       if (result) {
-        sWarningLogged = false;
+        warningLogged = false;
       } else {
-        if (!sWarningLogged) {
+        if (!warningLogged) {
           // Log only once to prevent spam.
           LogUtil.w(TAG, "Dialer is not currently set to be default dialer");
-          sWarningLogged = true;
+          warningLogged = true;
         }
       }
       return result;

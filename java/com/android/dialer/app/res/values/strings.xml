@@ -51,9 +51,6 @@
   <!-- Text for snackbar to undo a voicemail delete. [CHAR LIMIT=30] -->
   <string name="snackbar_voicemail_deleted">Voicemail deleted</string>
 
-  <!-- Text for undo button in snackbar for voicemail deletion. [CHAR LIMIT=10] -->
-  <string name="snackbar_voicemail_deleted_undo">UNDO</string>
-
   <!-- Title of the confirmation dialog for clearing the call log. [CHAR LIMIT=37]  -->
   <string name="clearCallLogConfirmation_title">Clear call history?</string>
 
@@ -351,12 +348,12 @@
   <!-- Button text for the "Set up" video calling option displayed underneath an entry in the call log.
        Tapping causes a the user to be taken to set up video calling.
        [CHAR LIMIT=30] -->
-  <string name="call_log_action_set_up_video">Set up</string>
+  <string name="call_log_action_set_up_video">Set up video calling</string>
 
   <!-- Button text for the "Invite" option displayed underneath an entry in the call log.
        Tapping causes a the user to be taken to the messaging app with a message ready to invite them to set up video calling.
        [CHAR LIMIT=30] -->
-  <string name="call_log_action_invite_video">Invite</string>
+  <string name="call_log_action_invite_video">Invite to video call</string>
 
   <!-- Button text for a button displayed underneath an entry in the call log, which opens up a
        messaging app to send a SMS to the number represented by the call log entry.
@@ -532,7 +529,7 @@
   <string name="call_settings_label">Calls</string>
 
   <!-- Label for the blocked numbers settings section [CHAR LIMIT=30] -->
-  <string name="manage_blocked_numbers_label">Call blocking</string>
+  <string name="manage_blocked_numbers_label">Blocked numbers</string>
 
   <!-- Label for the voicemail settings section [CHAR LIMIT=30] -->
   <string name="voicemail_settings_label">Voicemail</string>
@@ -675,36 +672,41 @@
        [CHAR LIMIT=64] -->
   <string name="voicemail_transcription_failed_no_speech">Transcript not available. No speech detected.</string>
 
-  <!-- Prompt asking the user to rate the quality of the voicemail transcription [CHAR LIMIT=30]
-       voicemail_transcription_rating, voicemail_transcription_rating_good,
-       voicemail_transcription_rating_separator and voicemail_transcription_rating_bad are
-       used together to form the rating prompt: 'Rate transcription quality   Good or Bad'
-       where 'Good' and 'Bad' are clickable links. -->
+  <!-- Title of voicemail donation promo dialog
+      [CHAR LIMIT=64] -->
+  <string name="voicemail_donation_promo_title">Help improve transcription accuracy?</string>
+
+  <!-- Content of voicemail donation promo dialog
+       [CHAR LIMIT=NONE] -->
+  <string name="voicemail_donation_promo_content">
+    Let Google review this and future voicemail messages with transcripts.
+    They\'ll be stored anonymously. Change Settings any time. <xliff:g example="Learn more">%1$s</xliff:g>
+  </string>
+
+  <string translatable="false" name="voicemail_donation_promo_learn_more_url">https://support.google.com/phoneapp/answer/2811844?hl=en%26ref_topic=7539039</string>
+
+  <!-- Label for the voicemail donation promo dialog opt-in button
+       [CHAR LIMIT=20] -->
+  <string name="voicemail_donation_promo_opt_in">Yes, I\'m in</string>
+
+  <!-- Label for the voicemail donation promo dialog opt-out button
+       [CHAR LIMIT=20] -->
+  <string name="voicemail_donation_promo_opt_out">No thanks</string>
+
+  <!-- Prompt asking the user to rate the quality of the voicemail transcription
+       [CHAR LIMIT=30] -->
   <string name="voicemail_transcription_rating">Rate transcription quality</string>
-
-  <!-- Rating choice indicating that the voicemail transcription was good [CHAR LIMIT=10]
-       voicemail_transcription_rating, voicemail_transcription_rating_good,
-       voicemail_transcription_rating_separator and voicemail_transcription_rating_bad are
-       used together to form the rating prompt: 'Rate transcription quality   Good or Bad'
-       where 'Good' and 'Bad' are clickable links. -->
-  <string name="voicemail_transcription_rating_good">Good</string>
-
-  <!-- Rating choice indicating that the voicemail transcription was bad [CHAR LIMIT=10]
-       voicemail_transcription_rating, voicemail_transcription_rating_good,
-       voicemail_transcription_rating_separator and voicemail_transcription_rating_bad are
-       used together to form the rating prompt: 'Rate transcription quality   Good or Bad'
-       where 'Good' and 'Bad' are clickable links. -->
-  <string name="voicemail_transcription_rating_bad">Bad</string>
-
-  <!-- Separator between the good and bad transcription rating choices [CHAR LIMIT=10]
-       voicemail_transcription_rating, voicemail_transcription_rating_good,
-       voicemail_transcription_rating_separator and voicemail_transcription_rating_bad are
-       used together to form the rating prompt: 'Rate transcription quality   Good or Bad'
-       where 'Good' and 'Bad' are clickable links. -->
-  <string name="voicemail_transcription_rating_separator"> or </string>
 
   <!-- Message displayed after user has rated a voicemail transcription [CHAR LIMIT=30] -->
   <string name="voicemail_transcription_rating_thanks">Thanks for your feedback</string>
+
+  <!-- Describes the thumbs up, 'good' transcription button. Read by TalkBack.
+      [CHAR LIMIT=NONE] -->
+  <string name="description_rating_good">Like</string>
+
+  <!-- Describes the thumbs down, 'bad' transcription button. Read by TalkBack.
+      [CHAR LIMIT=NONE] -->
+  <string name="description_rating_bad">Dislike</string>
 
   <!-- Button text to prompt a user to open an sms conversation [CHAR LIMIT=NONE] -->
   <string name="view_conversation">View</string>

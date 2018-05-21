@@ -16,29 +16,45 @@
 package com.android.dialer.voicemail.listui;
 
 import android.app.FragmentManager;
+import android.content.ContentValues;
+import android.content.Context;
+import android.content.Intent;
 import android.database.Cursor;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
 import android.media.MediaPlayer.OnErrorListener;
 import android.media.MediaPlayer.OnPreparedListener;
+import android.net.Uri;
+import android.provider.VoicemailContract.Voicemails;
 import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
+import android.support.annotation.WorkerThread;
+import android.support.design.widget.Snackbar;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.RecyclerView.ViewHolder;
 import android.util.ArrayMap;
 import android.util.ArraySet;
+import android.util.Pair;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import com.android.dialer.calllogutils.CallLogDates;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
+import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.common.concurrent.ThreadUtil;
 import com.android.dialer.time.Clock;
 import com.android.dialer.voicemail.listui.NewVoicemailViewHolder.NewVoicemailViewHolderListener;
+import com.android.dialer.voicemail.listui.error.VoicemailErrorMessage;
+import com.android.dialer.voicemail.listui.error.VoicemailErrorMessageCreator;
+import com.android.dialer.voicemail.listui.error.VoicemailStatus;
 import com.android.dialer.voicemail.model.VoicemailEntry;
+import com.android.voicemail.VoicemailClient;
+import com.google.common.collect.ImmutableList;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
@@ -46,27 +62,43 @@ import java.util.Set;
 final class NewVoicemailAdapter extends RecyclerView.Adapter<ViewHolder>
     implements NewVoicemailViewHolderListener {
 
+  private static final int VOICEMAIL_DELETE_DELAY_MS = 3000;
+
   /** IntDef for the different types of rows that can be shown in the call log. */
   @Retention(RetentionPolicy.SOURCE)
-  @IntDef({RowType.HEADER, RowType.VOICEMAIL_ENTRY})
+  @IntDef({RowType.HEADER, RowType.VOICEMAIL_ENTRY, RowType.VOICEMAIL_ALERT})
   @interface RowType {
-    /** Header that displays "Today" or "Older". */
-    int HEADER = 1;
+    /** A row representing a voicemail alert. */
+    int VOICEMAIL_ALERT = 1;
+    /** Header that displays "Today", "Yesterday" or "Older". */
+    int HEADER = 2;
     /** A row representing a voicemail entry. */
-    int VOICEMAIL_ENTRY = 2;
+    int VOICEMAIL_ENTRY = 3;
   }
 
-  private final Cursor cursor;
+  private Cursor cursor;
   private final Clock clock;
 
   /** {@link Integer#MAX_VALUE} when the "Today" header should not be displayed. */
-  private final int todayHeaderPosition;
+  private int todayHeaderPosition = Integer.MAX_VALUE;
+  /** {@link Integer#MAX_VALUE} when the "Yesterday" header should not be displayed. */
+  private int yesterdayHeaderPosition = Integer.MAX_VALUE;
   /** {@link Integer#MAX_VALUE} when the "Older" header should not be displayed. */
-  private final int olderHeaderPosition;
+  private int olderHeaderPosition = Integer.MAX_VALUE;
+  /** {@link Integer#MAX_VALUE} when the voicemail alert message should not be displayed. */
+  private int voicemailAlertPosition = Integer.MAX_VALUE;
 
   private final FragmentManager fragmentManager;
   /** A valid id for {@link VoicemailEntry} is greater than 0 */
-  private int currentlyExpandedViewHolderId = -1;
+  private long currentlyExpandedViewHolderId = -1;
+
+  private VoicemailErrorMessage voicemailErrorMessage;
+
+  /**
+   * It takes time to delete voicemails from the server, so we "remove" them and remember the
+   * positions we removed until a new cursor is ready.
+   */
+  Set<Integer> deletedVoicemailPosition = new ArraySet<>();
 
   /**
    * A set of (re-usable) view holders being used by the recycler view to display voicemails. This
@@ -80,47 +112,89 @@ final class NewVoicemailAdapter extends RecyclerView.Adapter<ViewHolder>
    * will always ensure there is only (up-to-date) view holder corresponding to a view holder id,
    * unlike the newVoicemailViewHolderSet.
    */
-  private final ArrayMap<Integer, NewVoicemailViewHolder> newVoicemailViewHolderArrayMap =
+  private final ArrayMap<Long, NewVoicemailViewHolder> newVoicemailViewHolderArrayMap =
       new ArrayMap<>();
 
   // A single instance of a media player re-used across the expanded view holders.
   private final NewVoicemailMediaPlayer mediaPlayer =
       new NewVoicemailMediaPlayer(new MediaPlayer());
 
-  /** @param cursor whose projection is {@link VoicemailCursorLoader.VOICEMAIL_COLUMNS} */
+  /** @param cursor whose projection is {@link VoicemailCursorLoader#VOICEMAIL_COLUMNS} */
   NewVoicemailAdapter(Cursor cursor, Clock clock, FragmentManager fragmentManager) {
     LogUtil.enterBlock("NewVoicemailAdapter");
     this.cursor = cursor;
     this.clock = clock;
     this.fragmentManager = fragmentManager;
     initializeMediaPlayerListeners();
+    updateHeaderPositions();
+  }
 
-    // Calculate header adapter positions by reading cursor.
-    long currentTimeMillis = clock.currentTimeMillis();
-    if (cursor.moveToNext()) {
-      long firstTimestamp = VoicemailCursorLoader.getTimestamp(cursor);
-      if (CallLogDates.isSameDay(currentTimeMillis, firstTimestamp)) {
-        this.todayHeaderPosition = 0;
-        int adapterPosition = 2; // Accounted for "Today" header and first row.
-        while (cursor.moveToNext()) {
-          long timestamp = VoicemailCursorLoader.getTimestamp(cursor);
+  private void updateHeaderPositions() {
+    LogUtil.i(
+        "NewVoicemailAdapter.updateHeaderPositions",
+        "before updating todayPos:%d, yestPos:%d, olderPos:%d, alertPos:%d",
+        todayHeaderPosition,
+        yesterdayHeaderPosition,
+        olderHeaderPosition,
+        voicemailAlertPosition);
 
-          if (CallLogDates.isSameDay(currentTimeMillis, timestamp)) {
-            adapterPosition++;
-          } else {
-            this.olderHeaderPosition = adapterPosition;
-            return;
-          }
-        }
-        this.olderHeaderPosition = Integer.MAX_VALUE; // Didn't find any "Older" rows.
-      } else {
-        this.todayHeaderPosition = Integer.MAX_VALUE; // Didn't find any "Today" rows.
-        this.olderHeaderPosition = 0;
-      }
-    } else { // There are no rows, just need to set these because they are final.
-      this.todayHeaderPosition = Integer.MAX_VALUE;
-      this.olderHeaderPosition = Integer.MAX_VALUE;
+    // If there are no rows to display, set all header positions to MAX_VALUE.
+    if (!cursor.moveToFirst()) {
+      todayHeaderPosition = Integer.MAX_VALUE;
+      yesterdayHeaderPosition = Integer.MAX_VALUE;
+      olderHeaderPosition = Integer.MAX_VALUE;
+      return;
     }
+
+    long currentTimeMillis = clock.currentTimeMillis();
+
+    int numItemsInToday = 0;
+    int numItemsInYesterday = 0;
+
+    do {
+      long timestamp = VoicemailCursorLoader.getTimestamp(cursor);
+      long dayDifference = CallLogDates.getDayDifference(currentTimeMillis, timestamp);
+      if (dayDifference == 0) {
+        numItemsInToday++;
+      } else if (dayDifference == 1) {
+        numItemsInYesterday++;
+      } else {
+        break;
+      }
+    } while (cursor.moveToNext());
+
+    if (numItemsInToday > 0) {
+      numItemsInToday++; // including the "Today" header;
+    }
+    if (numItemsInYesterday > 0) {
+      numItemsInYesterday++; // including the "Yesterday" header;
+    }
+
+    int alertOffSet = 0;
+    if (voicemailAlertPosition != Integer.MAX_VALUE) {
+      Assert.checkArgument(
+          voicemailAlertPosition == 0, "voicemail alert can only be 0, when showing");
+      alertOffSet = 1;
+    }
+
+    // Set all header positions.
+    // A header position will be MAX_VALUE if there is no item to be displayed under that header.
+    todayHeaderPosition = numItemsInToday > 0 ? alertOffSet : Integer.MAX_VALUE;
+    yesterdayHeaderPosition =
+        numItemsInYesterday > 0 ? numItemsInToday + alertOffSet : Integer.MAX_VALUE;
+    olderHeaderPosition =
+        !cursor.isAfterLast()
+            ? numItemsInToday + numItemsInYesterday + alertOffSet
+            : Integer.MAX_VALUE;
+
+    LogUtil.i(
+        "NewVoicemailAdapter.updateHeaderPositions",
+        "after updating todayPos:%d, yestPos:%d, olderPos:%d, alertOffSet:%d, alertPos:%d",
+        todayHeaderPosition,
+        yesterdayHeaderPosition,
+        olderHeaderPosition,
+        alertOffSet,
+        voicemailAlertPosition);
   }
 
   private void initializeMediaPlayerListeners() {
@@ -129,12 +203,23 @@ final class NewVoicemailAdapter extends RecyclerView.Adapter<ViewHolder>
     mediaPlayer.setOnErrorListener(onErrorListener);
   }
 
+  public void updateCursor(Cursor updatedCursor) {
+    LogUtil.enterBlock("NewVoicemailAdapter.updateCursor");
+    deletedVoicemailPosition.clear();
+    this.cursor = updatedCursor;
+    updateHeaderPositions();
+    notifyDataSetChanged();
+  }
+
   @Override
   public ViewHolder onCreateViewHolder(ViewGroup viewGroup, @RowType int viewType) {
     LogUtil.enterBlock("NewVoicemailAdapter.onCreateViewHolder");
     LayoutInflater inflater = LayoutInflater.from(viewGroup.getContext());
     View view;
     switch (viewType) {
+      case RowType.VOICEMAIL_ALERT:
+        view = inflater.inflate(R.layout.new_voicemail_entry_alert, viewGroup, false);
+        return new NewVoicemailAlertViewHolder(view);
       case RowType.HEADER:
         view = inflater.inflate(R.layout.new_voicemail_entry_header, viewGroup, false);
         return new NewVoicemailHeaderViewHolder(view);
@@ -154,47 +239,52 @@ final class NewVoicemailAdapter extends RecyclerView.Adapter<ViewHolder>
   @Override
   public void onBindViewHolder(ViewHolder viewHolder, int position) {
     LogUtil.enterBlock("NewVoicemailAdapter.onBindViewHolder, pos:" + position);
+    // Re-request a bind when a viewholder is deleted to ensure correct position
+    if (deletedVoicemailPosition.contains(position)) {
+      LogUtil.i(
+          "NewVoicemailAdapter.onBindViewHolder",
+          "pos:%d contains deleted voicemail, re-bind. #of deleted voicemail positions: %d",
+          position,
+          deletedVoicemailPosition.size());
+      // TODO(uabdullah): This should be removed when we support multi-select delete
+      Assert.checkArgument(
+          deletedVoicemailPosition.size() == 1, "multi-deletes not currently supported");
+      onBindViewHolder(viewHolder, ++position);
+      return;
+    }
+
     // TODO(uabdullah): a bug Remove logging, temporarily here for debugging.
     printHashSet();
     // TODO(uabdullah): a bug Remove logging, temporarily here for debugging.
-    printHashMap();
+    printArrayMap();
 
     if (viewHolder instanceof NewVoicemailHeaderViewHolder) {
       LogUtil.i(
           "NewVoicemailAdapter.onBindViewHolder", "view holder at pos:%d is a header", position);
-      NewVoicemailHeaderViewHolder headerViewHolder = (NewVoicemailHeaderViewHolder) viewHolder;
-      @RowType int viewType = getItemViewType(position);
-      if (position == todayHeaderPosition) {
-        headerViewHolder.setHeader(R.string.new_voicemail_header_today);
-      } else if (position == olderHeaderPosition) {
-        headerViewHolder.setHeader(R.string.new_voicemail_header_older);
-      } else {
-        throw Assert.createIllegalStateFailException(
-            "Unexpected view type " + viewType + " at position: " + position);
-      }
+      onBindHeaderViewHolder(viewHolder, position);
+      return;
+    }
+
+    if (viewHolder instanceof NewVoicemailAlertViewHolder) {
+      LogUtil.i(
+          "NewVoicemailAdapter.onBindViewHolder", "view holder at pos:%d is a alert", position);
+      onBindAlertViewHolder(viewHolder, position);
       return;
     }
 
     LogUtil.i(
         "NewVoicemailAdapter.onBindViewHolder",
-        "view holder at pos:%d is a not a header",
+        "view holder at pos:%d is a not a header or an alert",
         position);
 
     NewVoicemailViewHolder newVoicemailViewHolder = (NewVoicemailViewHolder) viewHolder;
-
-    int previousHeaders = 0;
-    if (todayHeaderPosition != Integer.MAX_VALUE && position > todayHeaderPosition) {
-      previousHeaders++;
-    }
-    if (olderHeaderPosition != Integer.MAX_VALUE && position > olderHeaderPosition) {
-      previousHeaders++;
-    }
+    int nonVoicemailEntryHeaders = getHeaderCountAtPosition(position);
 
     LogUtil.i(
         "NewVoicemailAdapter.onBindViewHolder",
-        "view holder at pos:%d, prevHeaderCount:%d",
+        "view holder at pos:%d, nonVoicemailEntryHeaders:%d",
         position,
-        previousHeaders);
+        nonVoicemailEntryHeaders);
 
     // Remove if the viewholder is being recycled.
     if (newVoicemailViewHolderArrayMap.containsKey(newVoicemailViewHolder.getViewHolderId())) {
@@ -208,11 +298,11 @@ final class NewVoicemailAdapter extends RecyclerView.Adapter<ViewHolder>
 
       newVoicemailViewHolderArrayMap.remove(newVoicemailViewHolder.getViewHolderId());
       printHashSet();
-      printHashMap();
+      printArrayMap();
     }
 
     newVoicemailViewHolder.reset();
-    cursor.moveToPosition(position - previousHeaders);
+    cursor.moveToPosition(position - nonVoicemailEntryHeaders);
     newVoicemailViewHolder.bindViewHolderValuesFromAdapter(
         cursor, fragmentManager, mediaPlayer, position, currentlyExpandedViewHolderId);
 
@@ -232,7 +322,7 @@ final class NewVoicemailAdapter extends RecyclerView.Adapter<ViewHolder>
     // TODO(uabdullah): a bug Remove logging, temporarily here for debugging.
     printHashSet();
     // TODO(uabdullah): a bug Remove logging, temporarily here for debugging.
-    printHashMap();
+    printArrayMap();
 
     // If the viewholder is playing the voicemail, keep updating its media player view (seekbar,
     // duration etc.)
@@ -265,22 +355,88 @@ final class NewVoicemailAdapter extends RecyclerView.Adapter<ViewHolder>
     // TODO(uabdullah): a bug Remove logging, temporarily here for debugging.
     printHashSet();
     // TODO(uabdullah): a bug Remove logging, temporarily here for debugging.
-    printHashMap();
+    printArrayMap();
   }
 
-  private void printHashMap() {
+  private int getHeaderCountAtPosition(int position) {
+    int previousHeaders = 0;
+    if (voicemailAlertPosition != Integer.MAX_VALUE && position > voicemailAlertPosition) {
+      previousHeaders++;
+    }
+    if (todayHeaderPosition != Integer.MAX_VALUE && position > todayHeaderPosition) {
+      previousHeaders++;
+    }
+    if (yesterdayHeaderPosition != Integer.MAX_VALUE && position > yesterdayHeaderPosition) {
+      previousHeaders++;
+    }
+    if (olderHeaderPosition != Integer.MAX_VALUE && position > olderHeaderPosition) {
+      previousHeaders++;
+    }
+    return previousHeaders;
+  }
+
+  private void onBindAlertViewHolder(ViewHolder viewHolder, int position) {
     LogUtil.i(
-        "NewVoicemailAdapter.printHashMap",
+        "NewVoicemailAdapter.onBindAlertViewHolder",
+        "pos:%d, voicemailAlertPosition:%d",
+        position,
+        voicemailAlertPosition);
+
+    NewVoicemailAlertViewHolder alertViewHolder = (NewVoicemailAlertViewHolder) viewHolder;
+    @RowType int viewType = getItemViewType(position);
+
+    Assert.checkArgument(position == 0, "position is not 0");
+    Assert.checkArgument(
+        position == voicemailAlertPosition,
+        String.format(
+            Locale.US,
+            "position:%d and voicemailAlertPosition:%d are different",
+            position,
+            voicemailAlertPosition));
+    Assert.checkArgument(viewType == RowType.VOICEMAIL_ALERT, "Invalid row type: " + viewType);
+    Assert.checkArgument(
+        voicemailErrorMessage.getActions().size() <= 2,
+        "Too many actions: " + voicemailErrorMessage.getActions().size());
+
+    alertViewHolder.setTitle(voicemailErrorMessage.getTitle());
+    alertViewHolder.setDescription(voicemailErrorMessage.getDescription());
+
+    if (!voicemailErrorMessage.getActions().isEmpty()) {
+      alertViewHolder.setPrimaryButton(voicemailErrorMessage.getActions().get(0));
+    }
+    if (voicemailErrorMessage.getActions().size() > 1) {
+      alertViewHolder.setSecondaryButton(voicemailErrorMessage.getActions().get(1));
+    }
+  }
+
+  private void onBindHeaderViewHolder(ViewHolder viewHolder, int position) {
+    NewVoicemailHeaderViewHolder headerViewHolder = (NewVoicemailHeaderViewHolder) viewHolder;
+    @RowType int viewType = getItemViewType(position);
+    if (position == todayHeaderPosition) {
+      headerViewHolder.setHeader(R.string.new_voicemail_header_today);
+    } else if (position == yesterdayHeaderPosition) {
+      headerViewHolder.setHeader(R.string.new_voicemail_header_yesterday);
+    } else if (position == olderHeaderPosition) {
+      headerViewHolder.setHeader(R.string.new_voicemail_header_older);
+    } else {
+      throw Assert.createIllegalStateFailException(
+          "Unexpected view type " + viewType + " at position: " + position);
+    }
+  }
+
+  private void printArrayMap() {
+    LogUtil.i(
+        "NewVoicemailAdapter.printArrayMap",
         "hashMapSize: %d, currentlyExpandedViewHolderId:%d",
         newVoicemailViewHolderArrayMap.size(),
         currentlyExpandedViewHolderId);
 
     if (!newVoicemailViewHolderArrayMap.isEmpty()) {
       String ids = "";
-      for (int id : newVoicemailViewHolderArrayMap.keySet()) {
-        ids = id + String.valueOf(id) + " ";
+      for (long id : newVoicemailViewHolderArrayMap.keySet()) {
+        ids = ids + id + " ";
       }
-      LogUtil.i("NewVoicemailAdapter.printHashMap", "ids are " + ids);
+      LogUtil.i("NewVoicemailAdapter.printArrayMap", "ids are " + ids);
     }
   }
 
@@ -457,6 +613,130 @@ final class NewVoicemailAdapter extends RecyclerView.Adapter<ViewHolder>
         "the last prepared and playing voicemails have to be the same when resuming");
 
     onPreparedListener.onPrepared(mediaPlayer.getMediaPlayer());
+  }
+
+  @Override
+  public void deleteViewHolder(
+      Context context,
+      FragmentManager fragmentManager,
+      NewVoicemailViewHolder expandedViewHolder,
+      Uri voicemailUri) {
+    LogUtil.i(
+        "NewVoicemailAdapter.deleteViewHolder",
+        "deleting adapter position %d, id:%d, uri:%s ",
+        expandedViewHolder.getAdapterPosition(),
+        expandedViewHolder.getViewHolderId(),
+        String.valueOf(voicemailUri));
+
+    deletedVoicemailPosition.add(expandedViewHolder.getAdapterPosition());
+
+    Assert.checkArgument(expandedViewHolder.getViewHolderVoicemailUri().equals(voicemailUri));
+
+    Assert.checkArgument(currentlyExpandedViewHolderId == expandedViewHolder.getViewHolderId());
+
+    collapseExpandedViewHolder(expandedViewHolder);
+
+    showUndoSnackbar(
+        context,
+        expandedViewHolder.getMediaPlayerView(),
+        expandedViewHolder.getAdapterPosition(),
+        voicemailUri);
+  }
+
+  private void showUndoSnackbar(
+      Context context, View newVoicemailMediaPlayerView, int position, Uri voicemailUri) {
+    LogUtil.i(
+        "NewVoicemailAdapter.showUndoSnackbar",
+        "position:%d and uri:%s",
+        position,
+        String.valueOf(voicemailUri));
+    Snackbar undoSnackbar =
+        Snackbar.make(
+            newVoicemailMediaPlayerView,
+            R.string.snackbar_voicemail_deleted,
+            VOICEMAIL_DELETE_DELAY_MS);
+    undoSnackbar.addCallback(
+        new Snackbar.Callback() {
+          @Override
+          public void onShown(Snackbar sb) {
+            notifyItemRemoved(position);
+            LogUtil.i(
+                "NewVoicemailAdapter.showUndoSnackbar",
+                "onShown for position:%d and uri:%s",
+                position,
+                voicemailUri);
+            super.onShown(sb);
+          }
+
+          @Override
+          public void onDismissed(Snackbar transientBottomBar, int event) {
+            LogUtil.i(
+                "NewVoicemailAdapter.showUndoSnackbar",
+                "onDismissed for event:%d, position:%d and uri:%s",
+                event,
+                position,
+                String.valueOf(voicemailUri));
+
+            switch (event) {
+              case DISMISS_EVENT_SWIPE:
+              case DISMISS_EVENT_ACTION:
+              case DISMISS_EVENT_MANUAL:
+                LogUtil.i(
+                    "NewVoicemailAdapter.showUndoSnackbar",
+                    "Not proceeding with deleting the voicemail");
+                deletedVoicemailPosition.remove(position);
+                notifyItemChanged(position);
+                break;
+              case DISMISS_EVENT_TIMEOUT:
+              case DISMISS_EVENT_CONSECUTIVE:
+                LogUtil.i(
+                    "NewVoicemailAdapter.showUndoSnackbar", "Proceeding with deleting voicemail");
+
+                DialerExecutorComponent.get(context)
+                    .dialerExecutorFactory()
+                    .createNonUiTaskBuilder(this::deleteVoicemail)
+                    .build()
+                    .executeSerial(new Pair<>(context, voicemailUri));
+                break;
+              default:
+                Assert.checkArgument(event <= 4 && event >= 0, "unknown event");
+            }
+          }
+
+          @WorkerThread
+          private Void deleteVoicemail(Pair<Context, Uri> contextUriPair) {
+            Assert.isWorkerThread();
+            Context context = contextUriPair.first;
+            Uri uri = contextUriPair.second;
+            LogUtil.i(
+                "NewVoicemailAdapter.deleteVoicemail", "deleting uri:%s", String.valueOf(uri));
+            ContentValues values = new ContentValues();
+            values.put(Voicemails.DELETED, "1");
+
+            int numRowsUpdated = context.getContentResolver().update(uri, values, null, null);
+
+            LogUtil.i("NewVoicemailAdapter.deleteVoicemail", "return value:%d", numRowsUpdated);
+            Assert.checkArgument(numRowsUpdated == 1, "voicemail delete was not successful");
+
+            Intent intent = new Intent(VoicemailClient.ACTION_UPLOAD);
+            intent.setPackage(context.getPackageName());
+            context.sendBroadcast(intent);
+            return null;
+          }
+        });
+
+    undoSnackbar
+        .setAction(
+            R.string.snackbar_undo,
+            new OnClickListener() {
+              @Override
+              public void onClick(View v) {
+                // does nothing, but needed for the undo button to show
+              }
+            })
+        .setActionTextColor(
+            context.getResources().getColor(R.color.dialer_snackbar_action_text_color))
+        .show();
   }
 
   /**
@@ -671,6 +951,7 @@ final class NewVoicemailAdapter extends RecyclerView.Adapter<ViewHolder>
       new OnErrorListener() {
         @Override
         public boolean onError(MediaPlayer mp, int what, int extra) {
+          LogUtil.e("NewVoicemailAdapter.onError", "onError, what:%d, extra:%d", what, extra);
           Assert.checkArgument(
               mediaPlayer.getMediaPlayer().equals(mp),
               "there should always only be one instance of the media player");
@@ -714,39 +995,121 @@ final class NewVoicemailAdapter extends RecyclerView.Adapter<ViewHolder>
       // returned when currentlyExpandedViewHolderId = -1 (viewholder was collapsed)
       LogUtil.i(
           "NewVoicemailAdapter.getCurrentlyExpandedViewHolder",
-          "no view holder found in newVoicemailViewHolderArrayMap size:%d for %d",
+          "no view holder found in hashmap size:%d for %d",
           newVoicemailViewHolderArrayMap.size(),
           currentlyExpandedViewHolderId);
       // TODO(uabdullah): a bug Remove logging, temporarily here for debugging.
       printHashSet();
-      printHashMap();
+      printArrayMap();
       return null;
     }
   }
 
   @Override
   public int getItemCount() {
+    // TODO(uabdullah): a bug Remove logging, temporarily here for debugging.
     LogUtil.enterBlock("NewVoicemailAdapter.getItemCount");
     int numberOfHeaders = 0;
+    if (voicemailAlertPosition != Integer.MAX_VALUE) {
+      numberOfHeaders++;
+    }
     if (todayHeaderPosition != Integer.MAX_VALUE) {
+      numberOfHeaders++;
+    }
+    if (yesterdayHeaderPosition != Integer.MAX_VALUE) {
       numberOfHeaders++;
     }
     if (olderHeaderPosition != Integer.MAX_VALUE) {
       numberOfHeaders++;
     }
-    return cursor.getCount() + numberOfHeaders;
+    // TODO(uabdullah): a bug Remove logging, temporarily here for debugging.
+    LogUtil.i(
+        "NewVoicemailAdapter.getItemCount",
+        "cursor cnt:%d, num of headers:%d, delete size:%d",
+        cursor.getCount(),
+        numberOfHeaders,
+        deletedVoicemailPosition.size());
+    return cursor.getCount() + numberOfHeaders - deletedVoicemailPosition.size();
   }
 
   @RowType
   @Override
   public int getItemViewType(int position) {
     LogUtil.enterBlock("NewVoicemailAdapter.getItemViewType");
+    if (voicemailAlertPosition != Integer.MAX_VALUE && position == voicemailAlertPosition) {
+      return RowType.VOICEMAIL_ALERT;
+    }
     if (todayHeaderPosition != Integer.MAX_VALUE && position == todayHeaderPosition) {
+      return RowType.HEADER;
+    }
+    if (yesterdayHeaderPosition != Integer.MAX_VALUE && position == yesterdayHeaderPosition) {
       return RowType.HEADER;
     }
     if (olderHeaderPosition != Integer.MAX_VALUE && position == olderHeaderPosition) {
       return RowType.HEADER;
     }
     return RowType.VOICEMAIL_ENTRY;
+  }
+
+  /**
+   * This will be called once the voicemail that was attempted to be played (and was not locally
+   * available) was downloaded from the server. However it is possible that by the time the download
+   * was completed, the view holder was collapsed. In that case we shouldn't play the voicemail.
+   */
+  public void checkAndPlayVoicemail() {
+    LogUtil.i(
+        "NewVoicemailAdapter.checkAndPlayVoicemail",
+        "expandedViewHolder:%d, inViewHolderSet:%b, MPRequestToDownload:%s",
+        currentlyExpandedViewHolderId,
+        isCurrentlyExpandedViewHolderInViewHolderSet(),
+        String.valueOf(mediaPlayer.getVoicemailRequestedToDownload()));
+
+    NewVoicemailViewHolder currentlyExpandedViewHolder = getCurrentlyExpandedViewHolder();
+    if (currentlyExpandedViewHolderId != -1
+        && isCurrentlyExpandedViewHolderInViewHolderSet()
+        && currentlyExpandedViewHolder != null
+        // Used to differentiate underlying table changes from voicemail downloads and other changes
+        // (e.g delete)
+        && mediaPlayer.getVoicemailRequestedToDownload() != null
+        && (mediaPlayer
+            .getVoicemailRequestedToDownload()
+            .equals(currentlyExpandedViewHolder.getViewHolderVoicemailUri()))) {
+      currentlyExpandedViewHolder.clickPlayButtonOfViewHoldersMediaPlayerView(
+          currentlyExpandedViewHolder);
+    } else {
+      LogUtil.i("NewVoicemailAdapter.checkAndPlayVoicemail", "not playing downloaded voicemail");
+    }
+  }
+
+  /**
+   * Updates the voicemail alert message to reflect the state of the {@link VoicemailStatus} table.
+   * TODO(uabdullah): Handle ToS properly (a bug)
+   */
+  public void updateVoicemailAlertWithMostRecentStatus(
+      Context context, ImmutableList<VoicemailStatus> voicemailStatuses) {
+
+    if (voicemailStatuses.isEmpty()) {
+      LogUtil.i(
+          "NewVoicemailAdapter.updateVoicemailAlertWithMostRecentStatus",
+          "voicemailStatuses was empty");
+      return;
+    }
+
+    voicemailErrorMessage = null;
+    VoicemailErrorMessageCreator messageCreator = new VoicemailErrorMessageCreator();
+
+    for (VoicemailStatus status : voicemailStatuses) {
+      voicemailErrorMessage = messageCreator.create(context, status, null);
+      if (voicemailErrorMessage != null) {
+        break;
+      }
+    }
+
+    if (voicemailErrorMessage != null) {
+      LogUtil.i("NewVoicemailAdapter.updateVoicemailAlertWithMostRecentStatus", "showing alert");
+      voicemailAlertPosition = 0;
+      updateHeaderPositions();
+      notifyItemChanged(0);
+    }
   }
 }

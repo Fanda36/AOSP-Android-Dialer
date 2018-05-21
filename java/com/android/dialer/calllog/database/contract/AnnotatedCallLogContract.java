@@ -17,7 +17,9 @@
 package com.android.dialer.calllog.database.contract;
 
 import android.net.Uri;
+import android.os.Build;
 import android.provider.BaseColumns;
+import com.android.dialer.compat.android.provider.VoicemailCompat;
 import com.android.dialer.constants.Constants;
 import java.util.Arrays;
 
@@ -42,16 +44,6 @@ public class AnnotatedCallLogContract {
     String TIMESTAMP = "timestamp";
 
     /**
-     * Copied from {@link android.provider.CallLog.Calls#CACHED_NAME}.
-     *
-     * <p>This is exactly how it should appear to the user. If the user's locale or name display
-     * preferences change, this column should be rewritten.
-     *
-     * <p>Type: TEXT
-     */
-    String NAME = "name";
-
-    /**
      * The phone number called or number the call came from, encoded as a {@link
      * com.android.dialer.DialerPhoneNumber} proto. The number may be empty if it was an incoming
      * call and the number was unknown.
@@ -61,43 +53,19 @@ public class AnnotatedCallLogContract {
     String NUMBER = "number";
 
     /**
-     * Copied from {@link android.provider.CallLog.Calls#CACHED_FORMATTED_NUMBER}.
+     * The number formatted as it should be displayed to the user. Note that it may not always be
+     * displayed, for example if the number has a corresponding person or business name.
      *
      * <p>Type: TEXT
      */
     String FORMATTED_NUMBER = "formatted_number";
 
     /**
-     * Copied from {@link android.provider.CallLog.Calls#CACHED_PHOTO_URI}.
+     * See {@link android.provider.CallLog.Calls#NUMBER_PRESENTATION}.
      *
-     * <p>TYPE: TEXT
+     * <p>Type: INTEGER (int)
      */
-    String PHOTO_URI = "photo_uri";
-
-    /**
-     * Copied from {@link android.provider.CallLog.Calls#CACHED_PHOTO_ID}.
-     *
-     * <p>Type: INTEGER (long)
-     */
-    String PHOTO_ID = "photo_id";
-
-    /**
-     * Copied from {@link android.provider.CallLog.Calls#CACHED_LOOKUP_URI}.
-     *
-     * <p>TYPE: TEXT
-     */
-    String LOOKUP_URI = "lookup_uri";
-
-    // TODO(zachh): If we need to support photos other than local contacts', add a (blob?) column.
-
-    /**
-     * The number type as a string to be displayed to the user, for example "Home" or "Mobile".
-     *
-     * <p>This column should be updated for the appropriate language when the locale changes.
-     *
-     * <p>TYPE: TEXT
-     */
-    String NUMBER_TYPE_LABEL = "number_type_label";
+    String NUMBER_PRESENTATION = "presentation";
 
     /**
      * See {@link android.provider.CallLog.Calls#IS_READ}.
@@ -135,20 +103,6 @@ public class AnnotatedCallLogContract {
     String PHONE_ACCOUNT_ID = "phone_account_id";
 
     /**
-     * String suitable for display which indicates the phone account used to make the call.
-     *
-     * <p>TYPE: TEXT
-     */
-    String PHONE_ACCOUNT_LABEL = "phone_account_label";
-
-    /**
-     * The color int for the phone account.
-     *
-     * <p>TYPE: INTEGER (int)
-     */
-    String PHONE_ACCOUNT_COLOR = "phone_account_color";
-
-    /**
      * See {@link android.provider.CallLog.Calls#FEATURES}.
      *
      * <p>TYPE: INTEGER (int)
@@ -156,20 +110,32 @@ public class AnnotatedCallLogContract {
     String FEATURES = "features";
 
     /**
-     * True if a caller ID data source informed us that this is a business number. This is used to
-     * determine if a generic business avatar should be shown vs. a generic person avatar.
+     * Additional attributes about the number.
      *
-     * <p>TYPE: INTEGER (boolean)
+     * <p>TYPE: BLOB
+     *
+     * @see com.android.dialer.NumberAttributes
      */
-    String IS_BUSINESS = "is_business";
+    String NUMBER_ATTRIBUTES = "number_attributes";
 
     /**
-     * True if this was a call to voicemail. This is used to determine if the voicemail avatar
-     * should be displayed.
+     * Whether the call is to the voicemail inbox.
      *
      * <p>TYPE: INTEGER (boolean)
+     *
+     * @see android.telecom.TelecomManager#isVoiceMailNumber(android.telecom.PhoneAccountHandle,
+     *     String)
      */
-    String IS_VOICEMAIL = "is_voicemail";
+    String IS_VOICEMAIL_CALL = "is_voicemail_call";
+
+    /**
+     * The "name" of the voicemail inbox. This is provided by the SIM to show as the caller ID
+     *
+     * <p>TYPE: TEXT
+     *
+     * @see android.telephony.TelephonyManager#getVoiceMailAlphaTag()
+     */
+    String VOICEMAIL_CALL_TAG = "voicemail_call_tag";
 
     /**
      * Copied from {@link android.provider.CallLog.Calls#TYPE}.
@@ -182,23 +148,18 @@ public class AnnotatedCallLogContract {
         new String[] {
           _ID,
           TIMESTAMP,
-          NAME,
           NUMBER,
           FORMATTED_NUMBER,
-          PHOTO_URI,
-          PHOTO_ID,
-          LOOKUP_URI,
-          NUMBER_TYPE_LABEL,
+          NUMBER_PRESENTATION,
           IS_READ,
           NEW,
           GEOCODED_LOCATION,
           PHONE_ACCOUNT_COMPONENT_NAME,
           PHONE_ACCOUNT_ID,
-          PHONE_ACCOUNT_LABEL,
-          PHONE_ACCOUNT_COLOR,
           FEATURES,
-          IS_BUSINESS,
-          IS_VOICEMAIL,
+          NUMBER_ATTRIBUTES,
+          IS_VOICEMAIL_CALL,
+          VOICEMAIL_CALL_TAG,
           CALL_TYPE
         };
   }
@@ -246,11 +207,31 @@ public class AnnotatedCallLogContract {
     public static final String TRANSCRIPTION = "transcription";
 
     /**
+     * See {@link VoicemailCompat#TRANSCRIPTION_STATE}
+     *
+     * <p>Only populated in {@link Build.VERSION_CODES#O} and above
+     *
+     * <p>TYPE: INTEGER
+     */
+    public static final String TRANSCRIPTION_STATE = "transcription_state";
+
+    /**
      * See {@link android.provider.CallLog.Calls#VOICEMAIL_URI}.
      *
      * <p>TYPE: TEXT
      */
     public static final String VOICEMAIL_URI = "voicemail_uri";
+
+    /**
+     * An unique id to associate this call log row to a {@link android.telecom.Call}.
+     *
+     * <p>For pre-Q device, this is same as {@link #TIMESTAMP}.
+     *
+     * <p>For Q+ device, this will be copied from {@link android.provider.CallLog.Calls}.
+     *
+     * <p>Type: TEXT
+     */
+    public static final String CALL_MAPPING_ID = "call_mapping_id";
   }
 
   /**
@@ -262,16 +243,6 @@ public class AnnotatedCallLogContract {
    * <p>When adding columns be sure to update {@link #COLUMNS_ONLY_IN_COALESCED_CALL_LOG}.
    */
   public static final class CoalescedAnnotatedCallLog implements CommonColumns {
-
-    public static final String TABLE = "CoalescedAnnotatedCallLog";
-
-    /** The content URI for this table. */
-    public static final Uri CONTENT_URI =
-        Uri.withAppendedPath(AnnotatedCallLogContract.CONTENT_URI, TABLE);
-
-    /** The MIME type of a {@link android.content.ContentProvider#getType(Uri)} single entry. */
-    public static final String CONTENT_ITEM_TYPE =
-        "vnd.android.cursor.item/coalesced_annotated_call_log";
 
     /**
      * IDs of rows in {@link AnnotatedCallLog} that are coalesced into one row in {@link

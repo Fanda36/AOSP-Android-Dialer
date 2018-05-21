@@ -44,7 +44,7 @@
   <string name="voicemail_change_pin_key" translatable="false">voicemail_change_pin_key</string>
 
   <!-- Visual voicemail on/off title [CHAR LIMIT=40] -->
-  <string name="voicemail_visual_voicemail_switch_title">Visual Voicemail</string>
+  <string name="voicemail_visual_voicemail_switch_title">Visual voicemail</string>
 
   <!-- Visual voicemail archive on/off title [CHAR LIMIT=40] -->
   <string name="voicemail_visual_voicemail_auto_archive_switch_title">Extra backup and storage</string>
@@ -102,21 +102,26 @@
   <!-- The error message to show if the server reported an error while attempting to change the voicemail PIN -->
   <string name="change_pin_system_error">Unable to set PIN</string>
 
+  <string name="voicemail_visual_voicemail_transcription_key" translatable="false">transcribe_voicemails</string>
   <string name="voicemail_visual_voicemail_donation_key" translatable="false">donate_voicemails</string>
 
+  <!-- Title for visual voicemail setting that enables users voicemails to be transcribed by Google.
+       [CHAR LIMIT=40] -->
+  <string name="voicemail_visual_voicemail_transcription_switch_title">
+    Voicemail transcription
+  </string>
   <!-- Title for visual voicemail setting that enables user to donate their voicemails for analysis.
        [CHAR LIMIT=40] -->
   <string name="voicemail_visual_voicemail_donation_switch_title">
     Voicemail transcription analysis
   </string>
-  <!-- Summary information for visual voicemail donation setting when visual voicemail is not enabled
-       [CHAR LIMIT=NONE] -->
-  <string name="voicemail_donate_preference_summary_disable">Visual voicemail must be enabled to donate voicemails</string>
-  <!-- Summary information for visual voicemail donation setting when visual voicemail is not activated
-       [CHAR LIMIT=NONE] -->
-  <string name="voicemail_donate_preference_summary_not_activated">Visual voicemail is not activated yet, please try again later</string>
+  <!-- Summary information while visual voicemail is activating after turning it on [CHAR LIMIT=NONE] -->
+  <string name="voicemail_activating_summary_info">Activating voicemail</string>
+
+  <!-- Summary information for visual voicemail transcription setting [CHAR LIMIT=NONE] -->
+  <string name="voicemail_transcription_preference_summary_info">Get transcripts of your voicemail using Google\'s transcription service. <xliff:g example="Learn more">%1$s</xliff:g></string>
   <!-- Summary information for visual voicemail donation setting [CHAR LIMIT=NONE] -->
-  <string name="voicemail_donate_preference_summary_info">Let Google review your voicemail messages to improve transcription quality</string>
+  <string name="voicemail_donate_preference_summary_info">Let Google review your voicemail messages to improve transcription accuracy. Your voicemail messages are stored anonymously. <xliff:g example="Learn more">%1$s</xliff:g></string>
 
   <!-- Title for disable visual voicemail confirmation dialog [CHAR LIMIT=40] -->
   <string name="confirm_disable_voicemail_dialog_title">Turn off visual voicemail</string>
@@ -124,5 +129,8 @@
   <string name="confirm_disable_voicemail_dialog_message">This will delete any voicemail and Google transcripts stored within this app. Your carrier may keep its own copies.</string>
   <!-- The label for the confirm-disable-voicemail button [CHAR LIMIT=16] -->
   <string name="confirm_disable_voicemail_accept_dialog_label">TURN OFF</string>
+
+  <string name="transcription_learn_more_url" translatable="false">https://support.google.com/phoneapp/answer/2811844?hl=en%26ref_topic=7539039</string>
+  <string name="donation_learn_more_url" translatable="false">https://support.google.com/phoneapp/answer/2811844#voicemail_transcript</string>
 
 </resources>
