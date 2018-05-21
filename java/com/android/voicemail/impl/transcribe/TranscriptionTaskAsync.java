@@ -58,9 +58,24 @@ public class TranscriptionTaskAsync extends TranscriptionTask {
   protected Pair<String, TranscriptionStatus> getTranscription() {
     VvmLog.i(TAG, "getTranscription");
 
+    if (GetTranscriptReceiver.hasPendingAlarm(context)) {
+      // Don't start a transcription while another is still active
+      VvmLog.i(
+          TAG,
+          "getTranscription, pending transcription, postponing transcription of: " + voicemailUri);
+      return new Pair<>(null, null);
+    }
+
+    TranscribeVoicemailAsyncRequest uploadRequest = getUploadRequest();
+    VvmLog.i(
+        TAG,
+        "getTranscription, uploading voicemail: "
+            + voicemailUri
+            + ", id: "
+            + uploadRequest.getTranscriptionId());
     TranscriptionResponseAsync uploadResponse =
         (TranscriptionResponseAsync)
-            sendRequest((client) -> client.sendUploadRequest(getUploadRequest()));
+            sendRequest((client) -> client.sendUploadRequest(uploadRequest));
 
     if (cancelled) {
       VvmLog.i(TAG, "getTranscription, cancelled.");
@@ -68,17 +83,28 @@ public class TranscriptionTaskAsync extends TranscriptionTask {
     } else if (uploadResponse == null) {
       VvmLog.i(TAG, "getTranscription, failed to upload voicemail.");
       return new Pair<>(null, TranscriptionStatus.FAILED_NO_RETRY);
+    } else if (uploadResponse.isStatusAlreadyExists()) {
+      VvmLog.i(TAG, "getTranscription, transcription already exists.");
+      GetTranscriptReceiver.beginPolling(
+          context,
+          voicemailUri,
+          uploadRequest.getTranscriptionId(),
+          0,
+          configProvider,
+          phoneAccountHandle);
+      return new Pair<>(null, null);
     } else if (uploadResponse.getTranscriptionId() == null) {
       VvmLog.i(TAG, "getTranscription, upload error: " + uploadResponse.status);
       return new Pair<>(null, TranscriptionStatus.FAILED_NO_RETRY);
     } else {
-      VvmLog.i(TAG, "getTranscription, begin polling for result.");
+      VvmLog.i(TAG, "getTranscription, begin polling for: " + uploadResponse.getTranscriptionId());
       GetTranscriptReceiver.beginPolling(
           context,
           voicemailUri,
           uploadResponse.getTranscriptionId(),
           uploadResponse.getEstimatedWaitMillis(),
-          configProvider);
+          configProvider,
+          phoneAccountHandle);
       // This indicates that the result is not available yet
       return new Pair<>(null, null);
     }
@@ -100,7 +126,9 @@ public class TranscriptionTaskAsync extends TranscriptionTask {
     // Generate the transcript id locally if configured to do so, or if voicemail donation is
     // available (because rating donating voicemails requires locally generated voicemail ids).
     if (configProvider.useClientGeneratedVoicemailIds()
-        || configProvider.isVoicemailDonationAvailable()) {
+        || VoicemailComponent.get(context)
+            .getVoicemailClient()
+            .isVoicemailDonationAvailable(context, phoneAccountHandle)) {
       // The server currently can't handle repeated transcription id's so if we add the Uri to the
       // fingerprint (which contains the voicemail id) which is different each time a voicemail is
       // downloaded.  If this becomes a problem then it should be possible to change the server

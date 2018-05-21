@@ -29,28 +29,29 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import com.android.dialer.app.R;
-import com.android.dialer.app.list.ListsFragment;
 import com.android.dialer.app.voicemail.VoicemailAudioManager;
 import com.android.dialer.app.voicemail.VoicemailErrorManager;
 import com.android.dialer.app.voicemail.VoicemailPlaybackPresenter;
-import com.android.dialer.app.voicemail.error.VoicemailErrorMessageCreator;
-import com.android.dialer.app.voicemail.error.VoicemailStatus;
-import com.android.dialer.app.voicemail.error.VoicemailStatusWorker;
+import com.android.dialer.common.FragmentUtils;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.common.concurrent.DialerExecutor;
 import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.util.PermissionsUtil;
+import com.android.dialer.voicemail.listui.error.VoicemailErrorMessageCreator;
+import com.android.dialer.voicemail.listui.error.VoicemailStatus;
+import com.android.dialer.voicemail.listui.error.VoicemailStatusWorker;
+import com.android.dialer.widget.EmptyContentView;
 import java.util.List;
 
 public class VisualVoicemailCallLogFragment extends CallLogFragment {
 
-  private final ContentObserver mVoicemailStatusObserver = new CustomContentObserver();
-  private VoicemailPlaybackPresenter mVoicemailPlaybackPresenter;
-  private DialerExecutor<Context> mPreSyncVoicemailStatusCheckExecutor;
+  private final ContentObserver voicemailStatusObserver = new CustomContentObserver();
+  private VoicemailPlaybackPresenter voicemailPlaybackPresenter;
+  private DialerExecutor<Context> preSyncVoicemailStatusCheckExecutor;
 
-  private VoicemailErrorManager mVoicemailErrorManager;
+  private VoicemailErrorManager voicemailErrorManager;
 
   public VisualVoicemailCallLogFragment() {
     super(CallLog.Calls.VOICEMAIL_TYPE);
@@ -58,19 +59,19 @@ public class VisualVoicemailCallLogFragment extends CallLogFragment {
 
   @Override
   protected VoicemailPlaybackPresenter getVoicemailPlaybackPresenter() {
-    return mVoicemailPlaybackPresenter;
+    return voicemailPlaybackPresenter;
   }
 
   @Override
   public void onActivityCreated(Bundle savedInstanceState) {
-    mVoicemailPlaybackPresenter =
+    voicemailPlaybackPresenter =
         VoicemailPlaybackPresenter.getInstance(getActivity(), savedInstanceState);
     if (PermissionsUtil.hasReadVoicemailPermissions(getContext())
         && PermissionsUtil.hasAddVoicemailPermissions(getContext())) {
       getActivity()
           .getContentResolver()
           .registerContentObserver(
-              VoicemailContract.Status.CONTENT_URI, true, mVoicemailStatusObserver);
+              VoicemailContract.Status.CONTENT_URI, true, voicemailStatusObserver);
     } else {
       LogUtil.w(
           "VisualVoicemailCallLogFragment.onActivityCreated",
@@ -78,7 +79,7 @@ public class VisualVoicemailCallLogFragment extends CallLogFragment {
     }
     super.onActivityCreated(savedInstanceState);
 
-    mPreSyncVoicemailStatusCheckExecutor =
+    preSyncVoicemailStatusCheckExecutor =
         DialerExecutorComponent.get(getContext())
             .dialerExecutorFactory()
             .createUiTaskBuilder(
@@ -88,8 +89,8 @@ public class VisualVoicemailCallLogFragment extends CallLogFragment {
             .onSuccess(this::onPreSyncVoicemailStatusChecked)
             .build();
 
-    mVoicemailErrorManager =
-        new VoicemailErrorManager(getContext(), getAdapter().getAlertManager(), mModalAlertManager);
+    voicemailErrorManager =
+        new VoicemailErrorManager(getContext(), getAdapter().getAlertManager(), modalAlertManager);
 
     if (PermissionsUtil.hasReadVoicemailPermissions(getContext())
         && PermissionsUtil.hasAddVoicemailPermissions(getContext())) {
@@ -98,7 +99,7 @@ public class VisualVoicemailCallLogFragment extends CallLogFragment {
           .registerContentObserver(
               VoicemailContract.Status.CONTENT_URI,
               true,
-              mVoicemailErrorManager.getContentObserver());
+              voicemailErrorManager.getContentObserver());
     } else {
       LogUtil.w(
           "VisualVoicemailCallLogFragment.onActivityCreated",
@@ -110,20 +111,23 @@ public class VisualVoicemailCallLogFragment extends CallLogFragment {
   public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedState) {
     View view = inflater.inflate(R.layout.call_log_fragment, container, false);
     setupView(view);
+    EmptyContentView emptyContentView = view.findViewById(R.id.empty_list_view);
+    emptyContentView.setImage(R.drawable.quantum_ic_voicemail_vd_theme_24);
+    emptyContentView.setImageTint(R.color.empty_voicemail_icon_tint_color, null);
     return view;
   }
 
   @Override
   public void onResume() {
     super.onResume();
-    mVoicemailPlaybackPresenter.onResume();
-    mVoicemailErrorManager.onResume();
+    voicemailPlaybackPresenter.onResume();
+    voicemailErrorManager.onResume();
   }
 
   @Override
   public void onPause() {
-    mVoicemailPlaybackPresenter.onPause();
-    mVoicemailErrorManager.onPause();
+    voicemailPlaybackPresenter.onPause();
+    voicemailErrorManager.onPause();
     super.onPause();
   }
 
@@ -132,10 +136,10 @@ public class VisualVoicemailCallLogFragment extends CallLogFragment {
     if (isAdded()) {
       getActivity()
           .getContentResolver()
-          .unregisterContentObserver(mVoicemailErrorManager.getContentObserver());
-      mVoicemailPlaybackPresenter.onDestroy();
-      mVoicemailErrorManager.onDestroy();
-      getActivity().getContentResolver().unregisterContentObserver(mVoicemailStatusObserver);
+          .unregisterContentObserver(voicemailErrorManager.getContentObserver());
+      voicemailPlaybackPresenter.onDestroy();
+      voicemailErrorManager.onDestroy();
+      getActivity().getContentResolver().unregisterContentObserver(voicemailStatusObserver);
     }
     super.onDestroy();
   }
@@ -143,23 +147,25 @@ public class VisualVoicemailCallLogFragment extends CallLogFragment {
   @Override
   public void onSaveInstanceState(Bundle outState) {
     super.onSaveInstanceState(outState);
-    if (mVoicemailPlaybackPresenter != null) {
-      mVoicemailPlaybackPresenter.onSaveInstanceState(outState);
+    if (voicemailPlaybackPresenter != null) {
+      voicemailPlaybackPresenter.onSaveInstanceState(outState);
     }
   }
 
   @Override
   public void fetchCalls() {
     super.fetchCalls();
-    ((ListsFragment) getParentFragment()).updateTabUnreadCounts();
+    if (FragmentUtils.getParent(this, CallLogFragmentListener.class) != null) {
+      FragmentUtils.getParentUnsafe(this, CallLogFragmentListener.class).updateTabUnreadCounts();
+    }
   }
 
   @Override
   public void onVisible() {
     LogUtil.enterBlock("VisualVoicemailCallLogFragment.onVisible");
     super.onVisible();
-    if (getActivity() != null) {
-      mPreSyncVoicemailStatusCheckExecutor.executeParallel(getActivity());
+    if (getActivity() != null && preSyncVoicemailStatusCheckExecutor != null) {
+      preSyncVoicemailStatusCheckExecutor.executeParallel(getActivity());
       Logger.get(getActivity()).logImpression(DialerImpression.Type.VVM_TAB_VIEWED);
       getActivity().setVolumeControlStream(VoicemailAudioManager.PLAYBACK_STREAM);
     }

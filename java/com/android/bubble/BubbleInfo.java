@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 The Android Open Source Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,11 @@
 package com.android.bubble;
 
 import android.app.PendingIntent;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.support.annotation.ColorInt;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.annotation.Px;
 import com.google.auto.value.AutoValue;
 import java.util.Collections;
@@ -31,11 +33,10 @@ public abstract class BubbleInfo {
   @ColorInt
   public abstract int getPrimaryColor();
 
-  @NonNull
   public abstract Icon getPrimaryIcon();
 
-  @NonNull
-  public abstract PendingIntent getPrimaryIntent();
+  @Nullable
+  public abstract Drawable getAvatar();
 
   @Px
   public abstract int getStartingYPosition();
@@ -49,11 +50,11 @@ public abstract class BubbleInfo {
 
   public static Builder from(@NonNull BubbleInfo bubbleInfo) {
     return builder()
-        .setPrimaryIntent(bubbleInfo.getPrimaryIntent())
         .setPrimaryColor(bubbleInfo.getPrimaryColor())
         .setPrimaryIcon(bubbleInfo.getPrimaryIcon())
         .setStartingYPosition(bubbleInfo.getStartingYPosition())
-        .setActions(bubbleInfo.getActions());
+        .setActions(bubbleInfo.getActions())
+        .setAvatar(bubbleInfo.getAvatar());
   }
 
   /** Builder for {@link BubbleInfo} */
@@ -64,7 +65,7 @@ public abstract class BubbleInfo {
 
     public abstract Builder setPrimaryIcon(@NonNull Icon primaryIcon);
 
-    public abstract Builder setPrimaryIntent(@NonNull PendingIntent primaryIntent);
+    public abstract Builder setAvatar(@Nullable Drawable avatar);
 
     public abstract Builder setStartingYPosition(@Px int startingYPosition);
 
@@ -77,8 +78,10 @@ public abstract class BubbleInfo {
   @AutoValue
   public abstract static class Action {
 
-    @NonNull
-    public abstract Icon getIcon();
+    public abstract Drawable getIconDrawable();
+
+    @Nullable
+    public abstract Drawable getSecondaryIconDrawable();
 
     @NonNull
     public abstract CharSequence getName();
@@ -86,34 +89,37 @@ public abstract class BubbleInfo {
     @NonNull
     public abstract PendingIntent getIntent();
 
-    public abstract boolean isEnabled();
+    public abstract boolean isCheckable();
 
     public abstract boolean isChecked();
 
     public static Builder builder() {
-      return new AutoValue_BubbleInfo_Action.Builder().setEnabled(true).setChecked(false);
+      return new AutoValue_BubbleInfo_Action.Builder().setCheckable(true).setChecked(false);
     }
 
     public static Builder from(@NonNull Action action) {
       return builder()
           .setIntent(action.getIntent())
           .setChecked(action.isChecked())
-          .setEnabled(action.isEnabled())
+          .setCheckable(action.isCheckable())
           .setName(action.getName())
-          .setIcon(action.getIcon());
+          .setIconDrawable(action.getIconDrawable())
+          .setSecondaryIconDrawable(action.getSecondaryIconDrawable());
     }
 
     /** Builder for {@link Action} */
     @AutoValue.Builder
     public abstract static class Builder {
 
-      public abstract Builder setIcon(@NonNull Icon icon);
+      public abstract Builder setIconDrawable(Drawable iconDrawable);
+
+      public abstract Builder setSecondaryIconDrawable(@Nullable Drawable secondaryIconDrawable);
 
       public abstract Builder setName(@NonNull CharSequence name);
 
       public abstract Builder setIntent(@NonNull PendingIntent intent);
 
-      public abstract Builder setEnabled(boolean enabled);
+      public abstract Builder setCheckable(boolean enabled);
 
       public abstract Builder setChecked(boolean checked);
 

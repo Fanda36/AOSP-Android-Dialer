@@ -93,7 +93,7 @@
           android:gravity="center_vertical"
           android:layout_marginStart="@dimen/call_log_list_item_info_margin_start">
 
-          <TextView
+          <com.android.dialer.widget.BidiTextView
             android:id="@+id/name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -193,32 +193,29 @@
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
                   android:layout_weight="1"
-                  android:gravity="start"
+                  android:gravity="start|center_vertical"
+                  android:focusable="true"
                   android:text="@string/voicemail_transcription_rating"/>
 
-              <TextView
-                  style="@style/TranscriptionQualityRatingLink"
+              <ImageView
+                  style="@style/TranscriptionQualityRatingIcon"
                   android:id="@+id/voicemail_transcription_rating_good"
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
-                  android:gravity="end"
-                  android:text="@string/voicemail_transcription_rating_good"/>
+                  android:contentDescription="@string/description_rating_good"
+                  android:gravity="end|center_vertical"
+                  android:focusable="true"
+                  android:src="@drawable/quantum_ic_thumb_up_grey600_24"/>
 
-              <TextView
-                  style="@style/TranscriptionQualityRating"
-                  android:id="@+id/voicemail_transcription_rating_separator"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:gravity="end"
-                  android:text="@string/voicemail_transcription_rating_separator"/>
-
-              <TextView
-                  style="@style/TranscriptionQualityRatingLink"
+              <ImageView
+                  style="@style/TranscriptionQualityRatingIcon"
                   android:id="@+id/voicemail_transcription_rating_bad"
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
-                  android:gravity="end"
-                  android:text="@string/voicemail_transcription_rating_bad"/>
+                  android:contentDescription="@string/description_rating_bad"
+                  android:gravity="end|center_vertical"
+                  android:focusable="true"
+                  android:src="@drawable/quantum_ic_thumb_down_grey600_24"/>
 
             </LinearLayout>
 

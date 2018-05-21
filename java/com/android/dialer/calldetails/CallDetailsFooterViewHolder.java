@@ -31,12 +31,11 @@ import com.android.dialer.performancereport.PerformanceReport;
 import com.android.dialer.util.CallUtil;
 import com.android.dialer.util.DialerUtils;
 
-/** ViewHolder container for {@link CallDetailsActivity} footer. */
+/** ViewHolder for the footer in {@link OldCallDetailsActivity} or {@link CallDetailsActivity}. */
 final class CallDetailsFooterViewHolder extends RecyclerView.ViewHolder implements OnClickListener {
 
   private final ReportCallIdListener reportCallIdListener;
   private final DeleteCallDetailsListener deleteCallDetailsListener;
-  private final View container;
   private final View copy;
   private final View edit;
   private final View reportCallerId;
@@ -51,7 +50,6 @@ final class CallDetailsFooterViewHolder extends RecyclerView.ViewHolder implemen
     super(view);
     this.reportCallIdListener = reportCallIdListener;
     this.deleteCallDetailsListener = deleteCallDetailsListener;
-    container = view.findViewById(R.id.footer_container);
     copy = view.findViewById(R.id.call_detail_action_copy);
     edit = view.findViewById(R.id.call_detail_action_edit_before_call);
     reportCallerId = view.findViewById(R.id.call_detail_action_report_caller_id);
@@ -65,7 +63,8 @@ final class CallDetailsFooterViewHolder extends RecyclerView.ViewHolder implemen
   public void setPhoneNumber(String number) {
     this.number = number;
     if (TextUtils.isEmpty(number)) {
-      container.setVisibility(View.GONE);
+      copy.setVisibility(View.GONE);
+      edit.setVisibility(View.GONE);
     } else if (reportCallIdListener.canReportCallerId(number)) {
       reportCallerId.setVisibility(View.VISIBLE);
     }
@@ -92,7 +91,8 @@ final class CallDetailsFooterViewHolder extends RecyclerView.ViewHolder implemen
     } else if (view == delete) {
       deleteCallDetailsListener.delete();
     } else {
-      Assert.fail("View on click not implemented: " + view);
+      throw Assert.createUnsupportedOperationFailException(
+          "View on click not implemented: " + view);
     }
   }
 

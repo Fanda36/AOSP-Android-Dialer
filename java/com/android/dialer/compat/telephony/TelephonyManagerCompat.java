@@ -25,7 +25,6 @@ import android.support.annotation.Nullable;
 import android.support.v4.os.BuildCompat;
 import android.telecom.PhoneAccountHandle;
 import android.telephony.TelephonyManager;
-import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.telecom.TelecomUtil;
 import java.lang.reflect.InvocationTargetException;
@@ -36,6 +35,8 @@ public class TelephonyManagerCompat {
   // TODO(maxwelb): Use public API for these constants when available
   public static final String EVENT_HANDOVER_VIDEO_FROM_WIFI_TO_LTE =
       "android.telephony.event.EVENT_HANDOVER_VIDEO_FROM_WIFI_TO_LTE";
+  public static final String EVENT_HANDOVER_VIDEO_FROM_LTE_TO_WIFI =
+      "android.telephony.event.EVENT_HANDOVER_VIDEO_FROM_LTE_TO_WIFI";
   public static final String EVENT_HANDOVER_TO_WIFI_FAILED =
       "android.telephony.event.EVENT_HANDOVER_TO_WIFI_FAILED";
   public static final String EVENT_CALL_REMOTELY_HELD = "android.telecom.event.CALL_REMOTELY_HELD";
@@ -46,6 +47,7 @@ public class TelephonyManagerCompat {
 
   public static final String EVENT_NOTIFY_INTERNATIONAL_CALL_ON_WFC =
       "android.telephony.event.EVENT_NOTIFY_INTERNATIONAL_CALL_ON_WFC";
+  public static final String EVENT_CALL_FORWARDED = "android.telephony.event.EVENT_CALL_FORWARDED";
 
   public static final String TELEPHONY_MANAGER_CLASS = "android.telephony.TelephonyManager";
 
@@ -57,21 +59,15 @@ public class TelephonyManagerCompat {
    *
    * <p>This signals to the telephony platform that an outgoing call qualifies for assisted dialing.
    */
-  public static final String ALLOW_ASSISTED_DIAL = "android.telecom.extra.ALLOW_ASSISTED_DIAL";
-
-  // TODO(erfanian): a bug Replace with the platform/telecom constant when available.
-  /**
-   * Indicates that an outgoing call has undergone assisted dialing.
-   *
-   * <p>Unlike {@link ALLOW_ASSISTED_DIAL}, the presence of this key further indicates that a call
-   * has undergone Assisted Dialing -- not just that it qualified for Assisted Dialing.
-   */
-  public static final String IS_ASSISTED_DIALED = "android.telecom.extra.IS_ASSISTED_DIALED";
+  public static final String USE_ASSISTED_DIALING = "android.telecom.extra.USE_ASSISTED_DIALING";
 
   // TODO(erfanian): a bug Replace with the platform/telecom API when available.
   /** Additional information relating to the assisted dialing transformation. */
   public static final String ASSISTED_DIALING_EXTRAS =
       "android.telecom.extra.ASSISTED_DIALING_EXTRAS";
+
+  /** Indicates the Connection/Call used assisted dialing. */
+  public static final int PROPERTY_ASSISTED_DIALING_USED = 1 << 9;
 
   public static final String EXTRA_IS_REFRESH =
       BuildCompat.isAtLeastOMR1() ? "android.telephony.extra.IS_REFRESH" : "is_refresh";
@@ -80,7 +76,14 @@ public class TelephonyManagerCompat {
    * Indicates the call underwent Assisted Dialing; typically set as a feature available from the
    * CallLog.
    */
-  public static final Integer FEATURES_ASSISTED_DIALING = 0x10;
+  public static final Integer FEATURES_ASSISTED_DIALING = 1 << 4;
+
+  /**
+   * Flag specifying whether to show an alert dialog for video call charges. By default this value
+   * is {@code false}. TODO(a bug): Replace with public API for these constants when available.
+   */
+  public static final String CARRIER_CONFIG_KEY_SHOW_VIDEO_CALL_CHARGES_ALERT_DIALOG_BOOL =
+      "show_video_call_charges_alert_dialog_bool";
 
   /**
    * Returns the number of phones available. Returns 1 for Single standby mode (Single SIM
@@ -131,9 +134,6 @@ public class TelephonyManagerCompat {
   @Nullable
   public static Uri getVoicemailRingtoneUri(
       TelephonyManager telephonyManager, PhoneAccountHandle accountHandle) {
-    if (VERSION.SDK_INT < VERSION_CODES.N) {
-      return null;
-    }
     return telephonyManager.getVoicemailRingtoneUri(accountHandle);
   }
 
@@ -147,8 +147,7 @@ public class TelephonyManagerCompat {
    */
   public static boolean isVoicemailVibrationEnabled(
       TelephonyManager telephonyManager, PhoneAccountHandle accountHandle) {
-    return VERSION.SDK_INT < VERSION_CODES.N
-        || telephonyManager.isVoicemailVibrationEnabled(accountHandle);
+    return telephonyManager.isVoicemailVibrationEnabled(accountHandle);
   }
 
   /**
@@ -157,9 +156,6 @@ public class TelephonyManagerCompat {
    */
   public static void setVisualVoicemailEnabled(
       TelephonyManager telephonyManager, PhoneAccountHandle handle, boolean enabled) {
-    if (VERSION.SDK_INT < VERSION_CODES.N_MR1) {
-      Assert.fail("setVisualVoicemailEnabled called on pre-NMR1");
-    }
     try {
       TelephonyManager.class
           .getMethod("setVisualVoicemailEnabled", PhoneAccountHandle.class, boolean.class)
@@ -175,9 +171,6 @@ public class TelephonyManagerCompat {
    */
   public static boolean isVisualVoicemailEnabled(
       TelephonyManager telephonyManager, PhoneAccountHandle handle) {
-    if (VERSION.SDK_INT < VERSION_CODES.N_MR1) {
-      Assert.fail("isVisualVoicemailEnabled called on pre-NMR1");
-    }
     try {
       return (boolean)
           TelephonyManager.class

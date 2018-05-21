@@ -25,6 +25,8 @@ import android.text.TextUtils;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
+import com.android.dialer.phonenumberutil.PhoneNumberHelper;
+import com.android.dialer.strictmode.StrictModeUtils;
 import com.google.i18n.phonenumbers.NumberParseException;
 import com.google.i18n.phonenumbers.PhoneNumberUtil;
 import com.google.i18n.phonenumbers.Phonenumber.PhoneNumber;
@@ -36,7 +38,7 @@ import java.util.Optional;
 @TargetApi(VERSION_CODES.N)
 @SuppressWarnings("AndroidApiChecker") // Use of optional
 final class Constraints {
-  private final PhoneNumberUtil phoneNumberUtil = PhoneNumberUtil.getInstance();
+  private final PhoneNumberUtil phoneNumberUtil;
   private final Context context;
   private final CountryCodeProvider countryCodeProvider;
 
@@ -56,10 +58,8 @@ final class Constraints {
       throw new NullPointerException("Provided configProviderCountryCodes cannot be null");
     }
 
-    // We allow dynamic country support only in Dialer; this should be removed in the framework
-    // implementation.
-    // TODO(erfanian): Remove in the framework implementation.
     this.countryCodeProvider = countryCodeProvider;
+    this.phoneNumberUtil = StrictModeUtils.bypass(() -> PhoneNumberUtil.getInstance());
   }
 
   /**
@@ -148,16 +148,18 @@ final class Constraints {
    */
   private Optional<PhoneNumber> parsePhoneNumber(
       @NonNull String numberToParse, @NonNull String userHomeCountryCode) {
-    try {
-      // TODO(erfanian): confirm behavior of blocking the foreground thread when moving to the
-      // framework
-      return Optional.of(phoneNumberUtil.parseAndKeepRawInput(numberToParse, userHomeCountryCode));
-    } catch (NumberParseException e) {
-      Logger.get(context)
-          .logImpression(DialerImpression.Type.ASSISTED_DIALING_CONSTRAINT_PARSING_FAILURE);
-      LogUtil.i("Constraints.parsePhoneNumber", "could not parse the number");
-      return Optional.empty();
-    }
+    return StrictModeUtils.bypass(
+        () -> {
+          try {
+            return Optional.of(
+                phoneNumberUtil.parseAndKeepRawInput(numberToParse, userHomeCountryCode));
+          } catch (NumberParseException e) {
+            Logger.get(context)
+                .logImpression(DialerImpression.Type.ASSISTED_DIALING_CONSTRAINT_PARSING_FAILURE);
+            LogUtil.i("Constraints.parsePhoneNumber", "could not parse the number");
+            return Optional.empty();
+          }
+        });
   }
 
   /** Returns a boolean indicating if the provided number is already internationally formatted. */
@@ -195,7 +197,8 @@ final class Constraints {
 
   /** Returns a boolean indicating if the provided number is considered to be a valid number. */
   private boolean isValidNumber(@NonNull Optional<PhoneNumber> parsedPhoneNumber) {
-    boolean result = PhoneNumberUtil.getInstance().isValidNumber(parsedPhoneNumber.get());
+    boolean result =
+        StrictModeUtils.bypass(() -> phoneNumberUtil.isValidNumber(parsedPhoneNumber.get()));
     LogUtil.i("Constraints.isValidNumber", String.valueOf(result));
 
     return result;
@@ -207,7 +210,7 @@ final class Constraints {
     // roaming and out of service.
     boolean result =
         !PhoneNumberUtils.isEmergencyNumber(numberToCheck)
-            && !PhoneNumberUtils.isLocalEmergencyNumber(context, numberToCheck);
+            && !PhoneNumberHelper.isLocalEmergencyNumber(context, numberToCheck);
     LogUtil.i("Constraints.isNotEmergencyNumber", String.valueOf(result));
     return result;
   }

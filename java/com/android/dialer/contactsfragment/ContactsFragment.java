@@ -46,7 +46,6 @@ import com.android.contacts.common.preference.ContactsPreferences.ChangeListener
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.FragmentUtils;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.contactsfragment.ContactsFragment.OnContactSelectedListener;
 import com.android.dialer.performancereport.PerformanceReport;
 import com.android.dialer.util.DialerUtils;
 import com.android.dialer.util.IntentUtil;
@@ -86,7 +85,7 @@ public class ContactsFragment extends Fragment
       new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-          getLoaderManager().initLoader(0, null, ContactsFragment.this);
+          loadContacts();
         }
       };
 
@@ -159,6 +158,11 @@ public class ContactsFragment extends Fragment
     contactsPrefs.registerChangeListener(this);
     header = getArguments().getInt(EXTRA_HEADER);
     hasPhoneNumbers = getArguments().getBoolean(EXTRA_HAS_PHONE_NUMBERS);
+    if (savedInstanceState == null) {
+      // The onHiddenChanged callback does not get called the first time the fragment is
+      // attached, so call it ourselves here.
+      onHiddenChanged(false);
+    }
   }
 
   @Override
@@ -208,11 +212,12 @@ public class ContactsFragment extends Fragment
     emptyContentView.setActionClickedListener(this);
 
     if (PermissionsUtil.hasContactsReadPermissions(getContext())) {
-      getLoaderManager().initLoader(0, null, this);
+      loadContacts();
     } else {
       emptyContentView.setDescription(R.string.permission_no_contacts);
       emptyContentView.setActionLabel(R.string.permission_single_turn_on);
       emptyContentView.setVisibility(View.VISIBLE);
+      recyclerView.setVisibility(View.GONE);
     }
 
     return view;
@@ -349,10 +354,25 @@ public class ContactsFragment extends Fragment
     if (requestCode == READ_CONTACTS_PERMISSION_REQUEST_CODE) {
       if (grantResults.length >= 1 && PackageManager.PERMISSION_GRANTED == grantResults[0]) {
         // Force a refresh of the data since we were missing the permission before this.
-        emptyContentView.setVisibility(View.GONE);
-        getLoaderManager().initLoader(0, null, this);
+        PermissionsUtil.notifyPermissionGranted(getContext(), permissions[0]);
       }
     }
+  }
+
+  @Override
+  public void onHiddenChanged(boolean hidden) {
+    super.onHiddenChanged(hidden);
+    OnContactsFragmentHiddenChangedListener listener =
+        FragmentUtils.getParent(this, OnContactsFragmentHiddenChangedListener.class);
+    if (listener != null) {
+      listener.onContactsFragmentHiddenChanged(hidden);
+    }
+  }
+
+  private void loadContacts() {
+    getLoaderManager().initLoader(0, null, this);
+    recyclerView.setVisibility(View.VISIBLE);
+    emptyContentView.setVisibility(View.GONE);
   }
 
   /** Listener for contacts list scroll state. */
@@ -365,5 +385,10 @@ public class ContactsFragment extends Fragment
 
     /** Called when a contact is selected in {@link ContactsFragment}. */
     void onContactSelected(ImageView photo, Uri contactUri, long contactId);
+  }
+
+  /** Listener for contacts fragment hidden state */
+  public interface OnContactsFragmentHiddenChangedListener {
+    void onContactsFragmentHiddenChanged(boolean hidden);
   }
 }

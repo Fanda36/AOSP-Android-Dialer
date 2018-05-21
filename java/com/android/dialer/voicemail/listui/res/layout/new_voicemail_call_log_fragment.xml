@@ -15,9 +15,32 @@
   ~ limitations under the License
   -->
 
-<android.support.v7.widget.RecyclerView
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/new_voicemail_call_log_recycler_view"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/new_voicemail_frame_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background_dialer_light"/>
+    android:background="@color/background_dialer_white"
+    android:orientation="vertical">
+
+  <android.support.v7.widget.RecyclerView
+      xmlns:android="http://schemas.android.com/apk/res/android"
+      android:id="@+id/new_voicemail_call_log_recycler_view"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:paddingBottom="88dp"
+      android:clipToPadding="false"/>
+
+
+  <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent">
+
+    <com.android.dialer.widget.EmptyContentView
+        android:id="@+id/empty_content_view"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:visibility="gone"/>
+  </FrameLayout>
+
+</FrameLayout>

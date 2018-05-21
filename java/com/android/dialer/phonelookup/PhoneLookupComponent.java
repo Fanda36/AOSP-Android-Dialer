@@ -17,13 +17,15 @@ package com.android.dialer.phonelookup;
 
 import android.content.Context;
 import com.android.dialer.inject.HasRootComponent;
+import com.android.dialer.inject.IncludeInDialerRoot;
+import com.android.dialer.phonelookup.composite.CompositePhoneLookup;
 import dagger.Subcomponent;
 
 /** Dagger component for the PhoneLookup package. */
 @Subcomponent
 public abstract class PhoneLookupComponent {
 
-  public abstract PhoneLookup phoneLookup();
+  public abstract CompositePhoneLookup compositePhoneLookup();
 
   public static PhoneLookupComponent get(Context context) {
     return ((HasComponent) ((HasRootComponent) context.getApplicationContext()).component())
@@ -31,6 +33,7 @@ public abstract class PhoneLookupComponent {
   }
 
   /** Used to refer to the root application component. */
+  @IncludeInDialerRoot
   public interface HasComponent {
     PhoneLookupComponent phoneLookupComponent();
   }

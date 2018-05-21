@@ -18,16 +18,12 @@ package com.android.dialer.dialpadview;
 
 import android.content.Context;
 import android.support.annotation.NonNull;
-import android.support.annotation.VisibleForTesting;
 import android.support.v4.util.SimpleArrayMap;
 import com.android.dialer.common.Assert;
-import com.android.dialer.compat.CompatUtils;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.i18n.LocaleUtils;
 
 /** A class containing character mappings for the dialpad. */
 public class DialpadCharMappings {
-  @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
-  public static final String FLAG_ENABLE_DUAL_ALPHABETS = "enable_dual_alphabets_on_t9";
 
   /** The character mapping for the Latin alphabet (the default mapping) */
   private static class Latin {
@@ -134,17 +130,27 @@ public class DialpadCharMappings {
 
   /**
    * Returns the character-key map of the ISO 639-2 language code of the 1st language preference or
-   * null if
-   *
-   * <ul>
-   *   <li>no character-key map for the language code is defined, or
-   *   <li>the support for dual alphabets is disabled.
-   * </ul>
+   * null if no character-key map for the language code is defined.
    */
   public static SimpleArrayMap<Character, Character> getCharToKeyMap(@NonNull Context context) {
-    return isDualAlphabetsEnabled(context)
-        ? CHAR_TO_KEY_MAPS.get(CompatUtils.getLocale(context).getISO3Language())
-        : null;
+    return CHAR_TO_KEY_MAPS.get(LocaleUtils.getLocale(context).getISO3Language());
+  }
+
+  /**
+   * Returns the character-key map of the provided ISO 639-2 language code.
+   *
+   * <p>Note: this method is for implementations of {@link
+   * com.android.dialer.smartdial.map.SmartDialMap} only. {@link #getCharToKeyMap(Context)} should
+   * be used for all other purposes.
+   *
+   * <p>It is the caller's responsibility to ensure the language code is valid and a character
+   * mapping is defined for that language. Otherwise, an exception will be thrown.
+   */
+  public static SimpleArrayMap<Character, Character> getCharToKeyMap(String languageCode) {
+    SimpleArrayMap<Character, Character> charToKeyMap = CHAR_TO_KEY_MAPS.get(languageCode);
+
+    return Assert.isNotNull(
+        charToKeyMap, "No character mappings can be found for language code '%s'", languageCode);
   }
 
   /** Returns the default character-key map (the one that uses the Latin alphabet). */
@@ -154,26 +160,15 @@ public class DialpadCharMappings {
 
   /**
    * Returns the key-characters map of the given ISO 639-2 language code of the 1st language
-   * preference or null if
-   *
-   * <ul>
-   *   <li>no key-characters map for the language code is defined, or
-   *   <li>the support for dual alphabets is disabled.
-   * </ul>
+   * preference or null if no key-characters map for the language code is defined.
    */
-  public static String[] getKeyToCharsMap(@NonNull Context context) {
-    return isDualAlphabetsEnabled(context)
-        ? KEY_TO_CHAR_MAPS.get(CompatUtils.getLocale(context).getISO3Language())
-        : null;
+  static String[] getKeyToCharsMap(@NonNull Context context) {
+    return KEY_TO_CHAR_MAPS.get(LocaleUtils.getLocale(context).getISO3Language());
   }
 
   /** Returns the default key-characters map (the one that uses the Latin alphabet). */
   public static String[] getDefaultKeyToCharsMap() {
     return Latin.KEY_TO_CHARS;
-  }
-
-  private static boolean isDualAlphabetsEnabled(Context context) {
-    return ConfigProviderBindings.get(context).getBoolean(FLAG_ENABLE_DUAL_ALPHABETS, false);
   }
 
   /**

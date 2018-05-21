@@ -28,6 +28,7 @@ import android.telephony.TelephonyManager;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.configprovider.ConfigProvider;
 import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.strictmode.StrictModeUtils;
 
 /**
  * A Creator for AssistedDialingMediators.
@@ -39,9 +40,9 @@ import com.android.dialer.configprovider.ConfigProviderBindings;
 public final class ConcreteCreator {
 
   // Floor set at N due to use of Optional.
-  protected static final int BUILD_CODE_FLOOR = Build.VERSION_CODES.N;
-  // Ceiling set at O_MR1 because this feature will ship as part of the framework in P.
-  @VisibleForTesting public static final int BUILD_CODE_CEILING = Build.VERSION_CODES.O_MR1;
+  @VisibleForTesting public static final int BUILD_CODE_FLOOR = Build.VERSION_CODES.N;
+  // Ceiling set at P because this feature will ship as part of the framework in Q.
+  @VisibleForTesting public static final int BUILD_CODE_CEILING = 28;
 
   /**
    * Creates a new AssistedDialingMediator
@@ -89,8 +90,11 @@ public final class ConcreteCreator {
     return new AssistedDialingMediatorImpl(
         new LocationDetector(
             telephonyManager,
-            PreferenceManager.getDefaultSharedPreferences(context)
-                .getString(context.getString(R.string.assisted_dialing_setting_cc_key), null)),
+            StrictModeUtils.bypass(
+                () ->
+                    PreferenceManager.getDefaultSharedPreferences(context)
+                        .getString(
+                            context.getString(R.string.assisted_dialing_setting_cc_key), null))),
         new NumberTransformer(constraints));
   }
 

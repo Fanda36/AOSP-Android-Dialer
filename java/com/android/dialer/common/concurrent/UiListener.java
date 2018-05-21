@@ -31,6 +31,7 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
+
 /**
  * A headless fragment for use in UI components that interact with ListenableFutures.
  *
@@ -71,7 +72,10 @@ public class UiListener<OutputT> extends Fragment {
     if (uiListener == null) {
       LogUtil.i("UiListener.create", "creating new UiListener for " + taskId);
       uiListener = new UiListener<>();
-      fragmentManager.beginTransaction().add(uiListener, taskId).commit();
+      // When launching an activity with the screen off, its onSaveInstanceState() is called before
+      // its fragments are created, which means we can't use commit() and need to use
+      // commitAllowingStateLoss(). This is not a problem for UiListener which saves no state.
+      fragmentManager.beginTransaction().add(uiListener, taskId).commitAllowingStateLoss();
     }
     return uiListener;
   }
@@ -93,7 +97,7 @@ public class UiListener<OutputT> extends Fragment {
     Futures.addCallback(
         Assert.isNotNull(future),
         callbackWrapper,
-        DialerExecutorComponent.get(context).uiExecutorService());
+        DialerExecutorComponent.get(context).uiExecutor());
   }
 
   private static class CallbackWrapper<OutputT> implements FutureCallback<OutputT> {
@@ -130,6 +134,9 @@ public class UiListener<OutputT> extends Fragment {
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     setRetainInstance(true);
+    // Note: We use commitAllowingStateLoss when attaching the fragment so it may not be safe to
+    // read savedInstanceState in all situations. (But it's not anticipated that this fragment
+    // should need to rely on saved state.)
   }
 
   @Override
@@ -142,3 +149,4 @@ public class UiListener<OutputT> extends Fragment {
     }
   }
 }
+

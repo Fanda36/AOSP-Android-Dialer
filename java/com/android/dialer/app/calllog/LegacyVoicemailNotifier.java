@@ -27,15 +27,16 @@ import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
 import android.telephony.CarrierConfigManager;
-import android.telephony.PhoneNumberUtils;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import com.android.dialer.app.R;
-import com.android.dialer.calllogutils.PhoneAccountUtils;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
+import com.android.dialer.location.GeoUtil;
 import com.android.dialer.notification.DialerNotificationManager;
 import com.android.dialer.notification.NotificationChannelManager;
+import com.android.dialer.phonenumberutil.PhoneNumberHelper;
+import com.android.dialer.telecom.TelecomUtil;
 
 /** Shows a notification in the status bar for legacy vociemail. */
 @TargetApi(VERSION_CODES.O)
@@ -137,15 +138,17 @@ public final class LegacyVoicemailNotifier {
   @NonNull
   private static String getNotificationText(
       @NonNull Context context, PhoneAccountHandle handle, String voicemailNumber) {
-    if (PhoneAccountUtils.getSubscriptionPhoneAccounts(context).size() > 1) {
+    if (TelecomUtil.getCallCapablePhoneAccounts(context).size() > 1) {
       TelecomManager telecomManager = context.getSystemService(TelecomManager.class);
       PhoneAccount phoneAccount = telecomManager.getPhoneAccount(handle);
-      return phoneAccount.getShortDescription().toString();
-    } else {
-      return String.format(
-          context.getString(R.string.notification_voicemail_text_format),
-          PhoneNumberUtils.formatNumber(voicemailNumber));
+      if (phoneAccount != null) {
+        return phoneAccount.getShortDescription().toString();
+      }
     }
+    return String.format(
+        context.getString(R.string.notification_voicemail_text_format),
+        PhoneNumberHelper.formatNumber(
+            context, voicemailNumber, GeoUtil.getCurrentCountryIso(context)));
   }
 
   public static void cancelNotification(
@@ -153,8 +156,18 @@ public final class LegacyVoicemailNotifier {
     LogUtil.enterBlock("LegacyVoicemailNotifier.cancelNotification");
     Assert.checkArgument(BuildCompat.isAtLeastO());
     Assert.isNotNull(phoneAccountHandle);
-    DialerNotificationManager.cancel(
-        context, getNotificationTag(context, phoneAccountHandle), NOTIFICATION_ID);
+    if ("null".equals(phoneAccountHandle.getId())) {
+      // while PhoneAccountHandle itself will never be null, telephony may still construct a "null"
+      // handle if the SIM is no longer available. Usually both SIM will be removed at the sames
+      // time, so just clear all notifications.
+      LogUtil.i(
+          "LegacyVoicemailNotifier.cancelNotification",
+          "'null' id, canceling all legacy voicemail notifications");
+      DialerNotificationManager.cancelAll(context, NOTIFICATION_TAG);
+    } else {
+      DialerNotificationManager.cancel(
+          context, getNotificationTag(context, phoneAccountHandle), NOTIFICATION_ID);
+    }
   }
 
   @NonNull

@@ -17,12 +17,12 @@
 package com.android.incallui.videotech.ims;
 
 import android.content.Context;
-import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.VisibleForTesting;
 import android.telecom.Call;
 import android.telecom.Call.Details;
+import android.telecom.PhoneAccountHandle;
 import android.telecom.VideoProfile;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
@@ -59,11 +59,7 @@ public class ImsVideoTech implements VideoTech {
   }
 
   @Override
-  public boolean isAvailable(Context context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-      return false;
-    }
-
+  public boolean isAvailable(Context context, PhoneAccountHandle phoneAccountHandle) {
     if (call.getVideoCall() == null) {
       return false;
     }
@@ -121,8 +117,9 @@ public class ImsVideoTech implements VideoTech {
   }
 
   @Override
-  public void onCallStateChanged(Context context, int newState) {
-    if (!isAvailable(context)) {
+  public void onCallStateChanged(
+      Context context, int newState, PhoneAccountHandle phoneAccountHandle) {
+    if (!isAvailable(context, phoneAccountHandle)) {
       return;
     }
 
@@ -206,6 +203,7 @@ public class ImsVideoTech implements VideoTech {
     LogUtil.enterBlock("ImsVideoTech.declineUpgradeRequest");
     call.getVideoCall()
         .sendSessionModifyResponse(new VideoProfile(call.getDetails().getVideoState()));
+    setSessionModificationState(SessionModificationState.NO_REQUEST);
     logger.logImpression(DialerImpression.Type.IMS_VIDEO_REQUEST_DECLINED);
   }
 

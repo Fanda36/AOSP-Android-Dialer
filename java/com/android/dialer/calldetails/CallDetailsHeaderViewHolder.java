@@ -27,7 +27,7 @@ import android.widget.ImageView;
 import android.widget.QuickContactBadge;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
-import com.android.dialer.calldetails.CallDetailsActivity.AssistedDialingNumberParseWorker;
+import com.android.dialer.calldetails.CallDetailsActivityCommon.AssistedDialingNumberParseWorker;
 import com.android.dialer.calldetails.CallDetailsEntries.CallDetailsEntry;
 import com.android.dialer.calllogutils.CallbackActionHelper.CallbackAction;
 import com.android.dialer.common.Assert;
@@ -37,16 +37,22 @@ import com.android.dialer.common.concurrent.DialerExecutor.SuccessListener;
 import com.android.dialer.compat.telephony.TelephonyManagerCompat;
 import com.android.dialer.contactphoto.ContactPhotoManager;
 import com.android.dialer.dialercontact.DialerContact;
+import com.android.dialer.glidephotomanager.GlidePhotoManagerComponent;
 import com.android.dialer.logging.InteractionEvent;
 import com.android.dialer.logging.Logger;
+import com.android.dialer.widget.BidiTextView;
 
-/** ViewHolder for Header/Contact in {@link CallDetailsActivity}. */
+/**
+ * ViewHolder for the header in {@link OldCallDetailsActivity} or {@link CallDetailsActivity}.
+ *
+ * <p>The header contains contact info and the primary callback button.
+ */
 public class CallDetailsHeaderViewHolder extends RecyclerView.ViewHolder
     implements OnClickListener, FailureListener {
 
   private final CallDetailsHeaderListener callDetailsHeaderListener;
   private final ImageView callbackButton;
-  private final TextView nameView;
+  private final BidiTextView nameView;
   private final TextView numberView;
   private final TextView networkView;
   private final QuickContactBadge contactPhoto;
@@ -54,10 +60,16 @@ public class CallDetailsHeaderViewHolder extends RecyclerView.ViewHolder
   private final TextView assistedDialingInternationalDirectDialCodeAndCountryCodeText;
   private final RelativeLayout assistedDialingContainer;
 
-  private DialerContact contact;
+  private final String number;
+  private final String postDialDigits;
+
   private @CallbackAction int callbackAction;
 
-  CallDetailsHeaderViewHolder(View container, CallDetailsHeaderListener callDetailsHeaderListener) {
+  CallDetailsHeaderViewHolder(
+      View container,
+      String number,
+      String postDialDigits,
+      CallDetailsHeaderListener callDetailsHeaderListener) {
     super(container);
     context = container.getContext();
     callbackButton = container.findViewById(R.id.call_back_button);
@@ -73,7 +85,11 @@ public class CallDetailsHeaderViewHolder extends RecyclerView.ViewHolder
         callDetailsHeaderListener::openAssistedDialingSettings);
 
     callbackButton.setOnClickListener(this);
+
+    this.number = number;
+    this.postDialDigits = postDialDigits;
     this.callDetailsHeaderListener = callDetailsHeaderListener;
+
     Logger.get(context)
         .logQuickContactOnTouch(
             contactPhoto, InteractionEvent.Type.OPEN_QUICK_CONTACT_FROM_CALL_DETAILS, true);
@@ -89,7 +105,7 @@ public class CallDetailsHeaderViewHolder extends RecyclerView.ViewHolder
     if (callDetailsEntry != null && hasAssistedDialingFeature(callDetailsEntry.getFeatures())) {
       showAssistedDialingContainer(true);
       callDetailsHeaderListener.createAssistedDialerNumberParserTask(
-          new CallDetailsActivity.AssistedDialingNumberParseWorker(),
+          new CallDetailsActivityCommon.AssistedDialingNumberParseWorker(),
           this::updateAssistedDialingText,
           this::onFailure);
 
@@ -132,13 +148,12 @@ public class CallDetailsHeaderViewHolder extends RecyclerView.ViewHolder
 
   /** Populates the contact info fields based on the current contact information. */
   void updateContactInfo(DialerContact contact, @CallbackAction int callbackAction) {
-    this.contact = contact;
     ContactPhotoManager.getInstance(context)
         .loadDialerThumbnailOrPhoto(
             contactPhoto,
-            contact.hasContactUri() ? Uri.parse(contact.getContactUri()) : null,
+            contact.getContactUri().isEmpty() ? null : Uri.parse(contact.getContactUri()),
             contact.getPhotoId(),
-            contact.hasPhotoUri() ? Uri.parse(contact.getPhotoUri()) : null,
+            contact.getPhotoUri().isEmpty() ? null : Uri.parse(contact.getPhotoUri()),
             contact.getNameOrNumber(),
             contact.getContactType());
 
@@ -169,6 +184,23 @@ public class CallDetailsHeaderViewHolder extends RecyclerView.ViewHolder
     setCallbackAction(callbackAction);
   }
 
+  void updateContactInfo(CallDetailsHeaderInfo headerInfo, @CallbackAction int callbackAction) {
+    GlidePhotoManagerComponent.get(context)
+        .glidePhotoManager()
+        .loadQuickContactBadge(contactPhoto, headerInfo.getPhotoInfo());
+
+    nameView.setText(headerInfo.getPrimaryText());
+    if (!headerInfo.getSecondaryText().isEmpty()) {
+      numberView.setVisibility(View.VISIBLE);
+      numberView.setText(headerInfo.getSecondaryText());
+    } else {
+      numberView.setVisibility(View.GONE);
+      numberView.setText(null);
+    }
+
+    setCallbackAction(callbackAction);
+  }
+
   private void setCallbackAction(@CallbackAction int callbackAction) {
     this.callbackAction = callbackAction;
     switch (callbackAction) {
@@ -194,14 +226,13 @@ public class CallDetailsHeaderViewHolder extends RecyclerView.ViewHolder
     if (view == callbackButton) {
       switch (callbackAction) {
         case CallbackAction.IMS_VIDEO:
-          callDetailsHeaderListener.placeImsVideoCall(contact.getNumber());
+          callDetailsHeaderListener.placeImsVideoCall(number);
           break;
         case CallbackAction.DUO:
-          callDetailsHeaderListener.placeDuoVideoCall(contact.getNumber());
+          callDetailsHeaderListener.placeDuoVideoCall(number);
           break;
         case CallbackAction.VOICE:
-          callDetailsHeaderListener.placeVoiceCall(
-              contact.getNumber(), contact.getPostDialDigits());
+          callDetailsHeaderListener.placeVoiceCall(number, postDialDigits);
           break;
         case CallbackAction.NONE:
         default:

@@ -17,6 +17,7 @@
 package com.android.dialer.simulator.impl;
 
 import android.net.Uri;
+import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.telecom.Connection;
 import android.telecom.ConnectionRequest;
@@ -29,6 +30,7 @@ import android.widget.Toast;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.common.concurrent.ThreadUtil;
+import com.android.dialer.simulator.Simulator;
 import com.android.dialer.simulator.SimulatorComponent;
 import com.android.dialer.simulator.SimulatorConnectionsBank;
 import java.util.ArrayList;
@@ -71,7 +73,8 @@ public class SimulatorConnectionService extends ConnectionService {
   public Connection onCreateOutgoingConnection(
       PhoneAccountHandle phoneAccount, ConnectionRequest request) {
     LogUtil.enterBlock("SimulatorConnectionService.onCreateOutgoingConnection");
-    if (!SimulatorSimCallManager.isSimulatorConnectionRequest(request)) {
+    if (!SimulatorComponent.get(this).getSimulator().isSimulatorMode()
+        && !SimulatorSimCallManager.isSimulatorConnectionRequest(request)) {
       LogUtil.i(
           "SimulatorConnectionService.onCreateOutgoingConnection",
           "outgoing call not from simulator, unregistering");
@@ -80,18 +83,32 @@ public class SimulatorConnectionService extends ConnectionService {
       SimulatorSimCallManager.unregister(this);
       return null;
     }
-
     SimulatorConnection connection = new SimulatorConnection(this, request);
-    connection.setDialing();
-    connection.setAddress(request.getAddress(), TelecomManager.PRESENTATION_ALLOWED);
-    simulatorConnectionsBank.add(connection);
-    ThreadUtil.postOnUiThread(
-        () ->
-            SimulatorComponent.get(instance)
-                .getSimulatorConnectionsBank()
-                .updateConferenceableConnections());
-    for (Listener listener : listeners) {
-      listener.onNewOutgoingConnection(connection);
+    if (SimulatorSimCallManager.isSimulatorConnectionRequest(request)) {
+      simulatorConnectionsBank.add(connection);
+      connection.setAddress(
+          request.getAddress(),
+          request
+              .getExtras()
+              .getInt(Simulator.PRESENTATION_CHOICE, TelecomManager.PRESENTATION_ALLOWED));
+      connection.setDialing();
+      ThreadUtil.postOnUiThread(
+          () ->
+              SimulatorComponent.get(instance)
+                  .getSimulatorConnectionsBank()
+                  .updateConferenceableConnections());
+      for (Listener listener : listeners) {
+        listener.onNewOutgoingConnection(connection);
+      }
+    } else {
+      connection.setAddress(request.getAddress(), 1);
+      Bundle extras = connection.getExtras();
+      extras.putString("connection_tag", "SimulatorMode");
+      connection.putExtras(extras);
+      simulatorConnectionsBank.add(connection);
+      connection.addListener(new NonSimulatorConnectionListener());
+      connection.setDialing();
+      ThreadUtil.postOnUiThread(connection::setActive);
     }
     return connection;
   }
@@ -109,10 +126,13 @@ public class SimulatorConnectionService extends ConnectionService {
       SimulatorSimCallManager.unregister(this);
       return null;
     }
-
     SimulatorConnection connection = new SimulatorConnection(this, request);
+    connection.setAddress(
+        getPhoneNumber(request),
+        request
+            .getExtras()
+            .getInt(Simulator.PRESENTATION_CHOICE, TelecomManager.PRESENTATION_ALLOWED));
     connection.setRinging();
-    connection.setAddress(getPhoneNumber(request), TelecomManager.PRESENTATION_ALLOWED);
     simulatorConnectionsBank.add(connection);
     ThreadUtil.postOnUiThread(
         () ->
@@ -138,11 +158,6 @@ public class SimulatorConnectionService extends ConnectionService {
     }
   }
 
-  private static Uri getPhoneNumber(ConnectionRequest request) {
-    String phoneNumber = request.getExtras().getString(TelephonyManager.EXTRA_INCOMING_NUMBER);
-    return Uri.fromParts(PhoneAccount.SCHEME_TEL, phoneNumber, null);
-  }
-
   /** Callback used to notify listeners when a new connection has been added. */
   public interface Listener {
     void onNewOutgoingConnection(@NonNull SimulatorConnection connection);
@@ -151,5 +166,10 @@ public class SimulatorConnectionService extends ConnectionService {
 
     void onConference(
         @NonNull SimulatorConnection connection1, @NonNull SimulatorConnection connection2);
+  }
+
+  private static Uri getPhoneNumber(ConnectionRequest request) {
+    String phoneNumber = request.getExtras().getString(TelephonyManager.EXTRA_INCOMING_NUMBER);
+    return Uri.fromParts(PhoneAccount.SCHEME_TEL, phoneNumber, null);
   }
 }

@@ -17,14 +17,17 @@
 package com.android.dialer.voicemail.listui;
 
 import android.content.Context;
+import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
 import android.media.MediaPlayer.OnErrorListener;
 import android.media.MediaPlayer.OnPreparedListener;
 import android.net.Uri;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
+import com.android.dialer.strictmode.StrictModeUtils;
 import java.io.IOException;
 
 /** A wrapper around {@link MediaPlayer} */
@@ -38,11 +41,13 @@ public class NewVoicemailMediaPlayer {
   private OnPreparedListener newVoicemailMediaPlayerOnPreparedListener;
   private OnCompletionListener newVoicemailMediaPlayerOnCompletionListener;
   private Uri pausedUri;
+  @Nullable private Uri voicemailRequestedToDownload;
 
   public NewVoicemailMediaPlayer(@NonNull MediaPlayer player) {
     mediaPlayer = Assert.isNotNull(player);
   }
 
+  // TODO(uabdullah): Consider removing the StrictModeUtils.bypass (a bug)
   public void prepareMediaPlayerAndPlayVoicemailWhenReady(Context context, Uri uri)
       throws IOException {
     Assert.checkArgument(uri != null, "Media player cannot play a null uri");
@@ -55,9 +60,24 @@ public class NewVoicemailMediaPlayer {
       voicemailUriLastPreparedOrPreparingToPlay = uri;
       verifyListenersNotNull();
       LogUtil.i("NewVoicemailMediaPlayer", "setData source");
-      mediaPlayer.setDataSource(context, uri);
+      StrictModeUtils.bypass(
+          () -> {
+            try {
+              mediaPlayer.setDataSource(context, uri);
+              setAudioManagerToNonSpeakerMode(context);
+            } catch (IOException e) {
+              LogUtil.i(
+                  "NewVoicemailMediaPlayer",
+                  "threw an Exception when setting datasource "
+                      + e
+                      + " for uri: "
+                      + uri
+                      + "for context : "
+                      + context);
+            }
+          });
       LogUtil.i("NewVoicemailMediaPlayer", "prepare async");
-      mediaPlayer.prepareAsync();
+      StrictModeUtils.bypass(() -> mediaPlayer.prepareAsync());
     } catch (IllegalStateException e) {
       LogUtil.i(
           "NewVoicemailMediaPlayer", "caught an IllegalStateException state exception : \n" + e);
@@ -66,6 +86,13 @@ public class NewVoicemailMediaPlayer {
           "NewVoicemailMediaPlayer",
           "threw an Exception " + e + " for uri: " + uri + "for context : " + context);
     }
+  }
+
+  /** We should never start playing voicemails from the speaker mode */
+  private void setAudioManagerToNonSpeakerMode(Context context) {
+    AudioManager audioManager = context.getSystemService(AudioManager.class);
+    audioManager.setMode(AudioManager.STREAM_MUSIC);
+    audioManager.setSpeakerphoneOn(false);
   }
 
   private void verifyListenersNotNull() {
@@ -94,6 +121,7 @@ public class NewVoicemailMediaPlayer {
     mediaPlayer.start();
     voicemailLastPlayedOrPlayingUri = startPlayingVoicemailUri;
     pausedUri = null;
+    voicemailRequestedToDownload = null;
   }
 
   public void reset() {
@@ -102,6 +130,7 @@ public class NewVoicemailMediaPlayer {
     voicemailLastPlayedOrPlayingUri = null;
     voicemailUriLastPreparedOrPreparingToPlay = null;
     pausedUri = null;
+    voicemailRequestedToDownload = null;
   }
 
   public void pauseMediaPlayer(Uri voicemailUri) {
@@ -132,6 +161,11 @@ public class NewVoicemailMediaPlayer {
   public void setOnCompletionListener(OnCompletionListener onCompletionListener) {
     mediaPlayer.setOnCompletionListener(onCompletionListener);
     newVoicemailMediaPlayerOnCompletionListener = onCompletionListener;
+  }
+
+  public void setVoicemailRequestedToDownload(@NonNull Uri uri) {
+    Assert.isNotNull(uri, "cannot download a null voicemail");
+    voicemailRequestedToDownload = uri;
   }
 
   /**
@@ -180,6 +214,17 @@ public class NewVoicemailMediaPlayer {
   public int getDuration() {
     Assert.checkArgument(mediaPlayer != null);
     return mediaPlayer.getDuration();
+  }
+
+  /**
+   * A null v/s non-value is important for the {@link NewVoicemailAdapter} to differentiate between
+   * a underlying table change due to a voicemail being downloaded or something else (e.g delete).
+   *
+   * @return if there was a Uri that was requested to be downloaded from the server, null otherwise.
+   */
+  @Nullable
+  public Uri getVoicemailRequestedToDownload() {
+    return voicemailRequestedToDownload;
   }
 
   public boolean isPaused() {

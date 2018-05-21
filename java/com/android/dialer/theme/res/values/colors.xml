@@ -36,15 +36,13 @@
 
   <color name="dialer_secondary_color">#F50057</color>
 
-  <!-- Primary text color in the Phone app -->
-  <color name="dialer_primary_text_color">#333333</color>
   <color name="dialer_primary_text_color_white">#ffffff</color>
   <color name="dialer_edit_text_hint_color">#DE78909C</color>
 
-  <!-- Secondary text color in the Phone app -->
-  <color name="dialer_secondary_text_color">#636363</color>
   <!-- 38% opacity -->
-  <color name="dialer_secondary_text_color_hiden">#61000000</color>
+  <color name="dialer_disabled_text_color">#9E9E9E</color>
+
+  <color name="dialer_link_color">#2A56C6</color>
 
   <!-- Color of the theme of the Dialer app -->
   <color name="dialtacts_theme_color">@color/dialer_theme_color</color>
@@ -73,4 +71,7 @@
 
   <!-- Color for bubble -->
   <color name="dialer_end_call_button_color">#BD2A2A</color>
+
+  <!-- Color for list dividers -->
+  <color name="divider_line_color">#D8D8D8</color>
 </resources>

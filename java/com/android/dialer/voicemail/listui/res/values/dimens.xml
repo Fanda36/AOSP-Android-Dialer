@@ -17,17 +17,8 @@
 <resources>
 
   <!-- TODO(uabdullah): These values are to be shared with the call log entries -->
-  <dimen name="call_log_entry_top_margin">6dp</dimen>
-  <dimen name="call_log_entry_padding_bottom_end">16dp</dimen>
-  <dimen name="call_log_entry_padding_top_start">12dp</dimen>
-  <dimen name="call_log_entry_photo_size">48dp</dimen>
-  <dimen name="call_log_entry_photo_padding">4dp</dimen>
-  <dimen name="call_log_entry_photo_text_margin">8dp</dimen>
   <dimen name="call_log_entry_menu_button_size">48dp</dimen>
-
-  <dimen name="voicemail_icon_margin">12dp</dimen>
-  <dimen name="voicemail_icon_size">16dp</dimen>
-
+  <dimen name="voicemail_transcription_text_size">14sp</dimen>
   <dimen name="voicemail_playback_state_text_size">14sp</dimen>
   <!-- TODO(uabdullah): Work with UX on this value to ensure proper spacing between
   the seekbar and transcription -->
@@ -37,5 +28,15 @@
   <dimen name="voicemail_media_player_height">56dp</dimen>
   <dimen name="voicemail_media_player_width">0dp</dimen>
 
-  <dimen name="voicemail_header_margin_start">16dp</dimen>
+  <dimen name="voicemail_tos_image_size">280dp</dimen>
+
+  <!-- Dimensions for voicemail alert -->
+  <dimen name="alert_main_padding">24dp</dimen>
+  <dimen name="voicemail_promo_card_icon_size">24dp</dimen>
+  <dimen name="voicemail_promo_card_main_padding">24dp</dimen>
+  <dimen name="voicemail_promo_card_title_padding">12dp</dimen>
+  <dimen name="voicemail_promo_card_title_text_size">16sp</dimen>
+  <dimen name="voicemail_promo_card_line_spacing">4dp</dimen>
+  <dimen name="voicemail_promo_card_message_size">14sp</dimen>
+
 </resources>

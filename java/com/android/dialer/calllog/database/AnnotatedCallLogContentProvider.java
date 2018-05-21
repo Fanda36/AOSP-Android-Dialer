@@ -29,12 +29,10 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
 import android.os.Build;
-import android.provider.CallLog.Calls;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import com.android.dialer.calllog.database.contract.AnnotatedCallLogContract;
 import com.android.dialer.calllog.database.contract.AnnotatedCallLogContract.AnnotatedCallLog;
-import com.android.dialer.calllog.database.contract.AnnotatedCallLogContract.CoalescedAnnotatedCallLog;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
 import java.util.ArrayList;
@@ -43,17 +41,11 @@ import java.util.Arrays;
 /** {@link ContentProvider} for the annotated call log. */
 public class AnnotatedCallLogContentProvider extends ContentProvider {
 
-  /**
-   * We sometimes run queries where we potentially pass every ID into a where clause using the
-   * (?,?,?,...) syntax. The maximum number of host parameters is 999, so that's the maximum size
-   * this table can be. See https://www.sqlite.org/limits.html for more details.
-   */
-  private static final int MAX_ROWS = 999;
+
 
   private static final int ANNOTATED_CALL_LOG_TABLE_CODE = 1;
   private static final int ANNOTATED_CALL_LOG_TABLE_ID_CODE = 2;
   private static final int ANNOTATED_CALL_LOG_TABLE_DISTINCT_NUMBER_CODE = 3;
-  private static final int COALESCED_ANNOTATED_CALL_LOG_TABLE_CODE = 4;
 
   private static final UriMatcher uriMatcher = new UriMatcher(UriMatcher.NO_MATCH);
 
@@ -68,14 +60,9 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
         AnnotatedCallLogContract.AUTHORITY,
         AnnotatedCallLog.DISTINCT_PHONE_NUMBERS,
         ANNOTATED_CALL_LOG_TABLE_DISTINCT_NUMBER_CODE);
-    uriMatcher.addURI(
-        AnnotatedCallLogContract.AUTHORITY,
-        CoalescedAnnotatedCallLog.TABLE,
-        COALESCED_ANNOTATED_CALL_LOG_TABLE_CODE);
   }
 
   private AnnotatedCallLogDatabaseHelper databaseHelper;
-  private Coalescer coalescer;
 
   private final ThreadLocal<Boolean> applyingBatch = new ThreadLocal<>();
 
@@ -86,12 +73,17 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
 
   @Override
   public boolean onCreate() {
-    databaseHelper = new AnnotatedCallLogDatabaseHelper(getContext(), MAX_ROWS);
-    coalescer = CallLogDatabaseComponent.get(getContext()).coalescer();
+    databaseHelper = CallLogDatabaseComponent.get(getContext()).annotatedCallLogDatabaseHelper();
+
+    // Note: As this method is called before Application#onCreate, we must *not* initialize objects
+    // that require preparation work done in Application#onCreate.
+    // One example is to avoid obtaining an instance that depends on Google's proprietary config,
+    // which is initialized in Application#onCreate.
+
     return true;
   }
 
-  @TargetApi(Build.VERSION_CODES.M) // Uses try-with-resources
+  @TargetApi(Build.VERSION_CODES.N) // Uses try-with-resources
   @Nullable
   @Override
   public Cursor query(
@@ -141,28 +133,6 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
           LogUtil.w("AnnotatedCallLogContentProvider.query", "cursor was null");
         }
         return cursor;
-      case COALESCED_ANNOTATED_CALL_LOG_TABLE_CODE:
-        Assert.checkArgument(
-            projection == CoalescedAnnotatedCallLog.ALL_COLUMNS,
-            "only ALL_COLUMNS projection supported for coalesced call log");
-        Assert.checkArgument(selection == null, "selection not supported for coalesced call log");
-        Assert.checkArgument(
-            selectionArgs == null, "selection args not supported for coalesced call log");
-        Assert.checkArgument(sortOrder == null, "sort order not supported for coalesced call log");
-        try (Cursor allAnnotatedCallLogRows =
-            queryBuilder.query(
-                db,
-                null,
-                String.format("%s != ?", CoalescedAnnotatedCallLog.CALL_TYPE),
-                new String[] {Integer.toString(Calls.VOICEMAIL_TYPE)},
-                null,
-                null,
-                AnnotatedCallLog.TIMESTAMP + " DESC")) {
-          Cursor coalescedRows = coalescer.coalesce(allAnnotatedCallLogRows);
-          coalescedRows.setNotificationUri(
-              getContext().getContentResolver(), CoalescedAnnotatedCallLog.CONTENT_URI);
-          return coalescedRows;
-        }
       default:
         throw new IllegalArgumentException("Unknown uri: " + uri);
     }
@@ -201,8 +171,6 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
         break;
       case ANNOTATED_CALL_LOG_TABLE_DISTINCT_NUMBER_CODE:
         throw new UnsupportedOperationException();
-      case COALESCED_ANNOTATED_CALL_LOG_TABLE_CODE:
-        throw new UnsupportedOperationException("coalesced call log does not support inserting");
       default:
         throw new IllegalArgumentException("Unknown uri: " + uri);
     }
@@ -239,8 +207,6 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
         break;
       case ANNOTATED_CALL_LOG_TABLE_DISTINCT_NUMBER_CODE:
         throw new UnsupportedOperationException();
-      case COALESCED_ANNOTATED_CALL_LOG_TABLE_CODE:
-        throw new UnsupportedOperationException("coalesced call log does not support deleting");
       default:
         throw new IllegalArgumentException("Unknown uri: " + uri);
     }
@@ -294,7 +260,6 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
         }
         return rows;
       case ANNOTATED_CALL_LOG_TABLE_DISTINCT_NUMBER_CODE:
-      case COALESCED_ANNOTATED_CALL_LOG_TABLE_CODE:
         throw new UnsupportedOperationException();
       default:
         throw new IllegalArgumentException("Unknown uri: " + uri);
@@ -330,9 +295,6 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
             break;
           case ANNOTATED_CALL_LOG_TABLE_DISTINCT_NUMBER_CODE:
             throw new UnsupportedOperationException();
-          case COALESCED_ANNOTATED_CALL_LOG_TABLE_CODE:
-            throw new UnsupportedOperationException(
-                "coalesced call log does not support applyBatch");
           default:
             throw new IllegalArgumentException("Unknown uri: " + operation.getUri());
         }
@@ -374,10 +336,6 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
   }
 
   private void notifyChange(Uri uri) {
-    getContext().getContentResolver().notifyChange(uri, null);
-    // Any time the annotated call log changes, we need to also notify observers of the
-    // CoalescedAnnotatedCallLog, since that is just a massaged in-memory view of the real annotated
-    // call log table.
-    getContext().getContentResolver().notifyChange(CoalescedAnnotatedCallLog.CONTENT_URI, null);
+    getContext().getContentResolver().notifyChange(uri, /* observer = */ null);
   }
 }
