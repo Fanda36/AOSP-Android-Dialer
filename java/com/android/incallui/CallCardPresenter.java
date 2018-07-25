@@ -44,11 +44,10 @@ import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import com.android.contacts.common.ContactsUtils;
-import com.android.contacts.common.preference.ContactsPreferences;
-import com.android.contacts.common.util.ContactDisplayUtils;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
+import com.android.dialer.contacts.ContactsComponent;
 import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.multimedia.MultimediaData;
@@ -123,7 +122,6 @@ public class CallCardPresenter
   private String secondaryNumber;
   private ContactCacheEntry primaryContactInfo;
   private ContactCacheEntry secondaryContactInfo;
-  @Nullable private ContactsPreferences contactsPreferences;
   private boolean isFullscreen = false;
   private InCallScreen inCallScreen;
   private boolean isInCallScreenReady;
@@ -159,7 +157,6 @@ public class CallCardPresenter
   public void onInCallScreenDelegateInit(InCallScreen inCallScreen) {
     Assert.isNotNull(inCallScreen);
     this.inCallScreen = inCallScreen;
-    contactsPreferences = ContactsPreferencesFactory.newContactsPreferences(context);
 
     // Call may be null if disconnect happened already.
     DialerCall call = CallList.getInstance().getFirstCall();
@@ -184,9 +181,6 @@ public class CallCardPresenter
   public void onInCallScreenReady() {
     LogUtil.i("CallCardPresenter.onInCallScreenReady", null);
     Assert.checkState(!isInCallScreenReady);
-    if (contactsPreferences != null) {
-      contactsPreferences.refreshValue(ContactsPreferences.DISPLAY_ORDER_KEY);
-    }
 
     // Contact search may have completed before ui is ready.
     if (primaryContactInfo != null) {
@@ -321,9 +315,7 @@ public class CallCardPresenter
       }
       this.primary.addListener(this);
 
-      primaryContactInfo =
-          ContactInfoCache.buildCacheEntryFromCall(
-              context, this.primary, this.primary.getState() == DialerCallState.INCOMING);
+      primaryContactInfo = ContactInfoCache.buildCacheEntryFromCall(context, this.primary);
       updatePrimaryDisplayInfo();
       maybeStartSearch(this.primary, true);
     }
@@ -339,9 +331,7 @@ public class CallCardPresenter
         updateSecondaryDisplayInfo();
       } else {
         // secondary call has changed
-        secondaryContactInfo =
-            ContactInfoCache.buildCacheEntryFromCall(
-                context, this.secondary, this.secondary.getState() == DialerCallState.INCOMING);
+        secondaryContactInfo = ContactInfoCache.buildCacheEntryFromCall(context, this.secondary);
         updateSecondaryDisplayInfo();
         maybeStartSearch(this.secondary, false);
       }
@@ -479,6 +469,8 @@ public class CallCardPresenter
                   .setSessionModificationState(primary.getVideoTech().getSessionModificationState())
                   .setDisconnectCause(primary.getDisconnectCause())
                   .setConnectionLabel(getConnectionLabel())
+                  .setPrimaryColor(
+                      InCallPresenter.getInstance().getThemeColorManager().getPrimaryColor())
                   .setSimSuggestionReason(getSimSuggestionReason())
                   .setConnectionIcon(getCallStateIcon())
                   .setGatewayNumber(getGatewayNumber())
@@ -726,6 +718,7 @@ public class CallCardPresenter
                       : null)
               .setLabel(isChildNumberShown || isCallSubjectShown ? null : primaryContactInfo.label)
               .setPhoto(primaryContactInfo.photo)
+              .setPhotoUri(primaryContactInfo.displayPhotoUri)
               .setPhotoType(primaryContactInfo.photoType)
               .setIsSipCall(primaryContactInfo.isSipCall)
               .setIsContactPhotoShown(showContactPhoto)
@@ -771,7 +764,8 @@ public class CallCardPresenter
   }
 
   private boolean shouldShowLocation() {
-    if (!ConfigProviderBindings.get(context)
+    if (!ConfigProviderComponent.get(context)
+        .getConfigProvider()
         .getBoolean(CONFIG_ENABLE_EMERGENCY_LOCATION, CONFIG_ENABLE_EMERGENCY_LOCATION_DEFAULT)) {
       LogUtil.i("CallCardPresenter.getLocationFragment", "disabled by config.");
       return false;
@@ -843,7 +837,8 @@ public class CallCardPresenter
     int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
     float batteryPercent = (100f * level) / scale;
     long threshold =
-        ConfigProviderBindings.get(context)
+        ConfigProviderComponent.get(context)
+            .getConfigProvider()
             .getLong(
                 CONFIG_MIN_BATTERY_PERCENT_FOR_EMERGENCY_LOCATION,
                 CONFIG_MIN_BATTERY_PERCENT_FOR_EMERGENCY_LOCATION_DEFAULT);
@@ -986,8 +981,9 @@ public class CallCardPresenter
   /** Gets the name to display for the call. */
   private String getNameForCall(ContactCacheEntry contactInfo) {
     String preferredName =
-        ContactDisplayUtils.getPreferredDisplayName(
-            contactInfo.namePrimary, contactInfo.nameAlternative, contactsPreferences);
+        ContactsComponent.get(context)
+            .contactDisplayPreferences()
+            .getDisplayName(contactInfo.namePrimary, contactInfo.nameAlternative);
     if (TextUtils.isEmpty(preferredName)) {
       return TextUtils.isEmpty(contactInfo.number)
           ? null

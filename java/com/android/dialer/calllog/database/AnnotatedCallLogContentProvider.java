@@ -16,7 +16,6 @@
 
 package com.android.dialer.calllog.database;
 
-import android.annotation.TargetApi;
 import android.content.ContentProvider;
 import android.content.ContentProviderOperation;
 import android.content.ContentProviderResult;
@@ -28,9 +27,9 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
-import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import com.android.dialer.calllog.database.AnnotatedCallLogConstraints.Operation;
 import com.android.dialer.calllog.database.contract.AnnotatedCallLogContract;
 import com.android.dialer.calllog.database.contract.AnnotatedCallLogContract.AnnotatedCallLog;
 import com.android.dialer.common.Assert;
@@ -40,8 +39,6 @@ import java.util.Arrays;
 
 /** {@link ContentProvider} for the annotated call log. */
 public class AnnotatedCallLogContentProvider extends ContentProvider {
-
-
 
   private static final int ANNOTATED_CALL_LOG_TABLE_CODE = 1;
   private static final int ANNOTATED_CALL_LOG_TABLE_ID_CODE = 2;
@@ -83,7 +80,6 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
     return true;
   }
 
-  @TargetApi(Build.VERSION_CODES.N) // Uses try-with-resources
   @Nullable
   @Override
   public Cursor query(
@@ -149,6 +145,8 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
   public Uri insert(@NonNull Uri uri, @Nullable ContentValues values) {
     // Javadoc states values is not nullable, even though it is annotated as such (a bug)!
     Assert.checkArgument(values != null);
+
+    AnnotatedCallLogConstraints.check(values, Operation.INSERT);
 
     SQLiteDatabase database = databaseHelper.getWritableDatabase();
     int match = uriMatcher.match(uri);
@@ -229,6 +227,8 @@ public class AnnotatedCallLogContentProvider extends ContentProvider {
       @Nullable String[] selectionArgs) {
     // Javadoc states values is not nullable, even though it is annotated as such (a bug)!
     Assert.checkArgument(values != null);
+
+    AnnotatedCallLogConstraints.check(values, Operation.UPDATE);
 
     SQLiteDatabase database = databaseHelper.getWritableDatabase();
     int match = uriMatcher.match(uri);

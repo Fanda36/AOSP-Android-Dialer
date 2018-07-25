@@ -60,7 +60,7 @@ import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.common.concurrent.DefaultFutureCallback;
 import com.android.dialer.compat.telephony.TelephonyManagerCompat;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
 import com.android.dialer.duo.DuoComponent;
 import com.android.dialer.enrichedcall.EnrichedCallCapabilities;
 import com.android.dialer.enrichedcall.EnrichedCallComponent;
@@ -80,7 +80,7 @@ import com.android.dialer.rtt.RttTranscriptUtil;
 import com.android.dialer.spam.status.SpamStatus;
 import com.android.dialer.telecom.TelecomCallUtil;
 import com.android.dialer.telecom.TelecomUtil;
-import com.android.dialer.theme.R;
+import com.android.dialer.theme.common.R;
 import com.android.dialer.time.Clock;
 import com.android.dialer.util.PermissionsUtil;
 import com.android.incallui.audiomode.AudioModeProvider;
@@ -315,6 +315,7 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
         @Override
         public void onRttInitiationFailure(Call call, int reason) {
           LogUtil.v("TelecomCallCallback.onRttInitiationFailure", "reason=%d", reason);
+          Toast.makeText(context, R.string.rtt_call_not_available_toast, Toast.LENGTH_LONG).show();
           update();
         }
 
@@ -841,7 +842,8 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
 
   boolean isInEmergencyCallbackWindow(long timestampMillis) {
     long emergencyCallbackWindowMillis =
-        ConfigProviderBindings.get(context)
+        ConfigProviderComponent.get(context)
+            .getConfigProvider()
             .getLong(CONFIG_EMERGENCY_CALLBACK_WINDOW_MILLIS, TimeUnit.MINUTES.toMillis(5));
     return System.currentTimeMillis() - timestampMillis < emergencyCallbackWindowMillis;
   }
@@ -975,13 +977,23 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
   }
 
   /** Checks if the call supports the given set of capabilities supplied as a bit mask. */
+  @TargetApi(28)
   public boolean can(int capabilities) {
     int supportedCapabilities = telecomCall.getDetails().getCallCapabilities();
 
     if ((capabilities & Call.Details.CAPABILITY_MERGE_CONFERENCE) != 0) {
+      boolean hasConferenceableCall = false;
+      // RTT call is not conferenceable, it's a bug (a bug) in Telecom and we work around it
+      // here before it's fixed in Telecom.
+      for (Call call : telecomCall.getConferenceableCalls()) {
+        if (!(BuildCompat.isAtLeastP() && call.isRttActive())) {
+          hasConferenceableCall = true;
+          break;
+        }
+      }
       // We allow you to merge if the capabilities allow it or if it is a call with
       // conferenceable calls.
-      if (telecomCall.getConferenceableCalls().isEmpty()
+      if (!hasConferenceableCall
           && ((Call.Details.CAPABILITY_MERGE_CONFERENCE & supportedCapabilities) == 0)) {
         // Cannot merge calls if there are no calls to merge with.
         return false;
@@ -1010,7 +1022,7 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
    * the same time that is logged as the start time in the Call Log (see {@link
    * android.provider.CallLog.Calls#DATE}).
    */
-  @TargetApi(26)
+  @TargetApi(VERSION_CODES.O)
   public long getCreationTimeMillis() {
     return telecomCall.getDetails().getCreationTimeMillis();
   }
@@ -1702,12 +1714,44 @@ public class DialerCall implements VideoTechListener, StateChangedListener, Capa
 
   /** Indicates the call is eligible for SpeakEasy */
   public boolean isSpeakEasyEligible() {
+
+    PhoneAccount phoneAccount = getPhoneAccount();
+
+    if (phoneAccount == null) {
+      return false;
+    }
+
+    if (!phoneAccount.hasCapabilities(PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION)) {
+      return false;
+    }
+
     return !isPotentialEmergencyCallback()
         && !isEmergencyCall()
         && !isActiveRttCall()
         && !isConferenceCall()
         && !isVideoCall()
-        && !isVoiceMailNumber();
+        && !isVoiceMailNumber()
+        && !hasReceivedVideoUpgradeRequest()
+        && !isVoipCallNotSupportedBySpeakeasy();
+  }
+
+  private boolean isVoipCallNotSupportedBySpeakeasy() {
+    Bundle extras = getIntentExtras();
+
+    if (extras == null) {
+      return false;
+    }
+
+    // Indicates an VOIP call.
+    String callid = extras.getString("callid");
+
+    if (TextUtils.isEmpty(callid)) {
+      LogUtil.i("DialerCall.isVoipCallNotSupportedBySpeakeasy", "callid was empty");
+      return false;
+    }
+
+    LogUtil.i("DialerCall.isVoipCallNotSupportedBySpeakeasy", "call is not eligible");
+    return true;
   }
 
   /** Indicates the user has selected SpeakEasy */

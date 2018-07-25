@@ -37,7 +37,7 @@
       android:id="@+id/promotion_icon"
       android:layout_width="36dp"
       android:layout_height="36dp"
-      android:tint="@color/dialer_theme_color"/>
+      android:tint="?android:attr/colorPrimary"/>
   <LinearLayout
       android:layout_width="match_parent"
       android:layout_height="wrap_content"
@@ -47,9 +47,7 @@
         android:id="@+id/promotion_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fontFamily="sans-serif-medium"
-        android:textColor="#DD000000"
-        android:textSize="16sp"
+        style="@style/Dialer.TextAppearance.Header2"
         />
     <TextView
         android:id="@+id/promotion_details"
@@ -58,11 +56,9 @@
         android:layout_marginTop="8dp"
         android:layout_marginBottom="16dp"
         android:lineSpacingMultiplier="1.5"
-        android:textColor="#DD000000"
-        android:textSize="14sp"/>
+        style="@style/Dialer.TextAppearance.Secondary"/>
     <Button
         android:id="@+id/ok_got_it"
-        style="@style/Widget.AppCompat.Button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
@@ -70,7 +66,6 @@
         android:layout_gravity="end"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
-        android:backgroundTint="@color/dialer_theme_color"
         android:fontFamily="sans-serif-medium"
         android:stateListAnimator="@null"
         android:text="@string/ok_got_it"

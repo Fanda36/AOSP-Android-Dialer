@@ -29,7 +29,7 @@ import android.view.Surface;
 import android.view.SurfaceView;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
 import com.android.dialer.util.PermissionsUtil;
 import com.android.incallui.InCallPresenter.InCallDetailsListener;
 import com.android.incallui.InCallPresenter.InCallOrientationListener;
@@ -691,8 +691,12 @@ public class VideoCallPresenter
   }
 
   private void checkForOrientationAllowedChange(@Nullable DialerCall call) {
-    InCallPresenter.getInstance()
-        .setInCallAllowsOrientationChange(isVideoCall(call) || isVideoUpgrade(call));
+    // Call could be null when video call ended. This check could prevent unwanted orientation
+    // change before incall UI gets destroyed.
+    if (call != null) {
+      InCallPresenter.getInstance()
+          .setInCallAllowsOrientationChange(isVideoCall(call) || isVideoUpgrade(call));
+    }
   }
 
   private void updateFullscreenAndGreenScreenMode(
@@ -1081,7 +1085,9 @@ public class VideoCallPresenter
           "VideoCallPresenter.shouldShowCameraPermissionToast", "already shown for this call");
       return false;
     }
-    if (!ConfigProviderBindings.get(context).getBoolean("camera_permission_dialog_allowed", true)) {
+    if (!ConfigProviderComponent.get(context)
+        .getConfigProvider()
+        .getBoolean("camera_permission_dialog_allowed", true)) {
       LogUtil.i("VideoCallPresenter.shouldShowCameraPermissionToast", "disabled by config");
       return false;
     }

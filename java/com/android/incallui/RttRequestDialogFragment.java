@@ -28,9 +28,9 @@ import android.text.TextDirectionHeuristics;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.TextView;
-import com.android.contacts.common.util.ContactDisplayUtils;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
+import com.android.dialer.contacts.ContactsComponent;
 import com.android.incallui.ContactInfoCache.ContactCacheEntry;
 import com.android.incallui.ContactInfoCache.ContactInfoCacheCallback;
 import com.android.incallui.call.CallList;
@@ -83,7 +83,7 @@ public class RttRequestDialogFragment extends DialogFragment {
         .setOnClickListener(v -> onPositiveButtonClick());
 
     AlertDialog alertDialog =
-        new AlertDialog.Builder(getActivity(), R.style.AlertDialogTheme)
+        new AlertDialog.Builder(getActivity())
             .setCancelable(false)
             .setView(dialogView)
             .setTitle(R.string.rtt_request_dialog_title)
@@ -130,10 +130,9 @@ public class RttRequestDialogFragment extends DialogFragment {
 
     private CharSequence getNameOrNumber(ContactCacheEntry entry, Context context) {
       String preferredName =
-          ContactDisplayUtils.getPreferredDisplayName(
-              entry.namePrimary,
-              entry.nameAlternative,
-              ContactsPreferencesFactory.newContactsPreferences(context));
+          ContactsComponent.get(context)
+              .contactDisplayPreferences()
+              .getDisplayName(entry.namePrimary, entry.nameAlternative);
       if (TextUtils.isEmpty(preferredName)) {
         return TextUtils.isEmpty(entry.number)
             ? null

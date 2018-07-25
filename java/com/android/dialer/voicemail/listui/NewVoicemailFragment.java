@@ -207,7 +207,6 @@ public final class NewVoicemailFragment extends Fragment implements LoaderCallba
 
     emptyContentView.setDescription((R.string.empty_voicemail_tab_text));
     emptyContentView.setImage(R.drawable.quantum_ic_voicemail_vd_theme_24);
-    emptyContentView.setImageTint(R.color.empty_voicemail_icon_tint_color, null);
   }
 
   private void showView(View view) {
@@ -280,7 +279,9 @@ public final class NewVoicemailFragment extends Fragment implements LoaderCallba
 
                 while (cursor.moveToNext()) {
                   VoicemailStatus status = new VoicemailStatus(context, cursor);
-                  if (status.isActive()) {
+                  if (status.isActive(context)) {
+                    LogUtil.i(
+                        "NewVoicemailFragment.queryVoicemailStatus", "inactive source ignored");
                     statuses.add(status);
                     // TODO(a bug): Handle Service State Listeners
                   }

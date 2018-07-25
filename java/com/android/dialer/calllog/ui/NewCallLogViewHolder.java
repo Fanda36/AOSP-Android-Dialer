@@ -17,7 +17,6 @@ package com.android.dialer.calllog.ui;
 
 import android.app.Activity;
 import android.content.res.ColorStateList;
-import android.database.Cursor;
 import android.provider.CallLog.Calls;
 import android.support.annotation.ColorInt;
 import android.support.annotation.DrawableRes;
@@ -26,18 +25,20 @@ import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
 import android.text.TextUtils;
 import android.view.View;
+import android.view.View.AccessibilityDelegate;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
 import android.widget.ImageView;
 import android.widget.TextView;
-import com.android.dialer.calllog.database.Coalescer;
 import com.android.dialer.calllog.model.CoalescedRow;
 import com.android.dialer.calllog.ui.NewCallLogAdapter.PopCounts;
 import com.android.dialer.calllog.ui.menu.NewCallLogMenu;
+import com.android.dialer.calllogutils.CallLogEntryDescriptions;
 import com.android.dialer.calllogutils.CallLogEntryText;
 import com.android.dialer.calllogutils.CallLogRowActions;
 import com.android.dialer.calllogutils.PhoneAccountUtils;
 import com.android.dialer.calllogutils.PhotoInfoBuilder;
 import com.android.dialer.common.concurrent.DialerExecutorComponent;
-import com.android.dialer.compat.AppCompatConstants;
 import com.android.dialer.compat.telephony.TelephonyManagerCompat;
 import com.android.dialer.oem.MotorolaUtils;
 import com.android.dialer.phonenumberutil.PhoneNumberHelper;
@@ -62,7 +63,8 @@ final class NewCallLogViewHolder extends RecyclerView.ViewHolder {
   private final ImageView wifiIcon;
   private final ImageView assistedDialIcon;
   private final TextView phoneAccountView;
-  private final ImageView menuButton;
+  private final ImageView callButton;
+  private final View callLogEntryRootView;
 
   private final Clock clock;
   private final RealtimeRowProcessor realtimeRowProcessor;
@@ -79,6 +81,7 @@ final class NewCallLogViewHolder extends RecyclerView.ViewHolder {
       PopCounts popCounts) {
     super(view);
     this.activity = activity;
+    callLogEntryRootView = view;
     contactPhotoView = view.findViewById(R.id.contact_photo_view);
     primaryTextView = view.findViewById(R.id.primary_text);
     callCountTextView = view.findViewById(R.id.call_count);
@@ -88,7 +91,7 @@ final class NewCallLogViewHolder extends RecyclerView.ViewHolder {
     wifiIcon = view.findViewById(R.id.wifi_icon);
     assistedDialIcon = view.findViewById(R.id.assisted_dial_icon);
     phoneAccountView = view.findViewById(R.id.phone_account);
-    menuButton = view.findViewById(R.id.menu_button);
+    callButton = view.findViewById(R.id.call_button);
 
     this.clock = clock;
     this.realtimeRowProcessor = realtimeRowProcessor;
@@ -96,24 +99,21 @@ final class NewCallLogViewHolder extends RecyclerView.ViewHolder {
     uiExecutorService = DialerExecutorComponent.get(activity).uiExecutor();
   }
 
-  /**
-   * @param cursor a cursor for {@link
-   *     com.android.dialer.calllog.database.contract.AnnotatedCallLogContract.CoalescedAnnotatedCallLog}.
-   */
-  void bind(Cursor cursor) {
-    CoalescedRow row = Coalescer.toRow(cursor);
-    currentRowId = row.getId(); // Used to make sure async updates are applied to the correct views
+  void bind(CoalescedRow coalescedRow) {
+    // The row ID is used to make sure async updates are applied to the correct views.
+    currentRowId = coalescedRow.getId();
 
     // Even if there is additional real time processing necessary, we still want to immediately show
     // what information we have, rather than an empty card. For example, if CP2 information needs to
     // be queried on the fly, we can still show the phone number until the contact name loads.
-    displayRow(row);
+    displayRow(coalescedRow);
+    configA11yForRow(coalescedRow);
 
     // Note: This leaks the view holder via the callback (which is an inner class), but this is OK
     // because we only create ~10 of them (and they'll be collected assuming all jobs finish).
     Futures.addCallback(
-        realtimeRowProcessor.applyRealtimeProcessing(row),
-        new RealtimeRowFutureCallback(row),
+        realtimeRowProcessor.applyRealtimeProcessing(coalescedRow),
+        new RealtimeRowFutureCallback(coalescedRow),
         uiExecutorService);
   }
 
@@ -139,8 +139,31 @@ final class NewCallLogViewHolder extends RecyclerView.ViewHolder {
     setFeatureIcons(row);
     setCallTypeIcon(row);
     setPhoneAccounts(row);
-    setOnClickListenerForRow(row);
-    setOnClickListenerForMenuButon(row);
+    setCallButon(row);
+
+    itemView.setOnClickListener(NewCallLogMenu.createOnClickListener(activity, row));
+  }
+
+  private void configA11yForRow(CoalescedRow row) {
+    callLogEntryRootView.setContentDescription(
+        CallLogEntryDescriptions.buildDescriptionForEntry(activity, clock, row));
+
+    // Inform a11y users that double tapping an entry now makes a call.
+    // This will instruct TalkBack to say "double tap to call" instead of
+    // "double tap to activate".
+    callLogEntryRootView.setAccessibilityDelegate(
+        new AccessibilityDelegate() {
+          @Override
+          public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(host, info);
+            info.addAction(
+                new AccessibilityAction(
+                    AccessibilityNodeInfo.ACTION_CLICK,
+                    activity
+                        .getResources()
+                        .getString(R.string.a11y_new_call_log_entry_tap_action)));
+          }
+        });
   }
 
   private void setNumberCalls(CoalescedRow row) {
@@ -161,7 +184,7 @@ final class NewCallLogViewHolder extends RecyclerView.ViewHolder {
   }
 
   private void setPhoto(CoalescedRow row) {
-    contactPhotoView.setPhoto(PhotoInfoBuilder.fromCoalescedRow(row).build());
+    contactPhotoView.setPhoto(PhotoInfoBuilder.fromCoalescedRow(activity, row).build());
   }
 
   private void setFeatureIcons(CoalescedRow row) {
@@ -201,19 +224,19 @@ final class NewCallLogViewHolder extends RecyclerView.ViewHolder {
   private void setCallTypeIcon(CoalescedRow row) {
     @DrawableRes int resId;
     switch (row.getCallType()) {
-      case AppCompatConstants.CALLS_INCOMING_TYPE:
-      case AppCompatConstants.CALLS_ANSWERED_EXTERNALLY_TYPE:
+      case Calls.INCOMING_TYPE:
+      case Calls.ANSWERED_EXTERNALLY_TYPE:
         resId = R.drawable.quantum_ic_call_received_vd_theme_24;
         break;
-      case AppCompatConstants.CALLS_OUTGOING_TYPE:
+      case Calls.OUTGOING_TYPE:
         resId = R.drawable.quantum_ic_call_made_vd_theme_24;
         break;
-      case AppCompatConstants.CALLS_MISSED_TYPE:
+      case Calls.MISSED_TYPE:
         resId = R.drawable.quantum_ic_call_missed_vd_theme_24;
         break;
-      case AppCompatConstants.CALLS_VOICEMAIL_TYPE:
+      case Calls.VOICEMAIL_TYPE:
         throw new IllegalStateException("Voicemails not expected in call log");
-      case AppCompatConstants.CALLS_BLOCKED_TYPE:
+      case Calls.BLOCKED_TYPE:
         resId = R.drawable.quantum_ic_block_vd_theme_24;
         break;
       default:
@@ -264,17 +287,29 @@ final class NewCallLogViewHolder extends RecyclerView.ViewHolder {
     phoneAccountView.setVisibility(View.VISIBLE);
   }
 
-  private void setOnClickListenerForRow(CoalescedRow row) {
+  private void setCallButon(CoalescedRow row) {
     if (!PhoneNumberHelper.canPlaceCallsTo(
         row.getNumber().getNormalizedNumber(), row.getNumberPresentation())) {
-      itemView.setOnClickListener(null);
+      callButton.setVisibility(View.GONE);
       return;
     }
-    itemView.setOnClickListener(view -> CallLogRowActions.startCallForRow(activity, row));
-  }
 
-  private void setOnClickListenerForMenuButon(CoalescedRow row) {
-    menuButton.setOnClickListener(NewCallLogMenu.createOnClickListener(activity, row));
+    callButton.setVisibility(View.VISIBLE);
+    if ((row.getFeatures() & Calls.FEATURES_VIDEO) == Calls.FEATURES_VIDEO) {
+      callButton.setImageResource(R.drawable.quantum_ic_videocam_vd_theme_24);
+      callButton.setContentDescription(
+          TextUtils.expandTemplate(
+              activity.getResources().getText(R.string.a11y_new_call_log_entry_video_call),
+              CallLogEntryText.buildPrimaryText(activity, row)));
+    } else {
+      callButton.setImageResource(R.drawable.quantum_ic_call_vd_theme_24);
+      callButton.setContentDescription(
+          TextUtils.expandTemplate(
+              activity.getResources().getText(R.string.a11y_new_call_log_entry_voice_call),
+              CallLogEntryText.buildPrimaryText(activity, row)));
+    }
+
+    callButton.setOnClickListener(view -> CallLogRowActions.startCallForRow(activity, row));
   }
 
   private class RealtimeRowFutureCallback implements FutureCallback<CoalescedRow> {

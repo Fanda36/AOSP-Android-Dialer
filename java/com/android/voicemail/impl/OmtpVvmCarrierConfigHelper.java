@@ -56,7 +56,7 @@ import java.util.Set;
  * <p>TODO(twyen): refactor this to an interface.
  */
 @TargetApi(VERSION_CODES.O)
-@SuppressWarnings({"missingpermission", "AndroidApiChecker"})
+@SuppressWarnings({"missingpermission"})
 public class OmtpVvmCarrierConfigHelper {
 
   private static final String TAG = "OmtpVvmCarrierCfgHlpr";
@@ -142,10 +142,14 @@ public class OmtpVvmCarrierConfigHelper {
 
   @VisibleForTesting
   OmtpVvmCarrierConfigHelper(
-      Context context, PersistableBundle carrierConfig, PersistableBundle telephonyConfig) {
+      Context context,
+      PersistableBundle carrierConfig,
+      PersistableBundle telephonyConfig,
+      @Nullable PhoneAccountHandle phoneAccountHandle) {
     this.context = context;
     this.carrierConfig = carrierConfig;
     this.telephonyConfig = telephonyConfig;
+    this.phoneAccountHandle = phoneAccountHandle;
     overrideConfig = null;
     vvmType = getVvmType();
     protocol = VisualVoicemailProtocolFactory.create(this.context.getResources(), vvmType);
@@ -345,7 +349,6 @@ public class OmtpVvmCarrierConfigHelper {
   }
 
   public void startActivation() {
-    Assert.checkArgument(isValid());
     PhoneAccountHandle phoneAccountHandle = getPhoneAccountHandle();
     if (phoneAccountHandle == null) {
       // This should never happen
@@ -353,17 +356,12 @@ public class OmtpVvmCarrierConfigHelper {
       return;
     }
 
-    if (vvmType == null || vvmType.isEmpty()) {
-      // The VVM type is invalid; we should never have gotten here in the first place since
-      // this is loaded initially in the constructor, and callers should check isValid()
-      // before trying to start activation anyways.
-      VvmLog.e(TAG, "startActivation : vvmType is null or empty for account " + phoneAccountHandle);
+    if (!isValid()) {
+      VvmLog.e(TAG, "startActivation : invalid config for account " + phoneAccountHandle);
       return;
     }
 
-    if (protocol != null) {
-      ActivationTask.start(context, this.phoneAccountHandle, null);
-    }
+    ActivationTask.start(context, this.phoneAccountHandle, null);
   }
 
   public void activateSmsFilter() {
@@ -378,17 +376,16 @@ public class OmtpVvmCarrierConfigHelper {
   }
 
   public void startDeactivation() {
-    Assert.checkArgument(isValid());
     VvmLog.i(TAG, "startDeactivation");
-    if (!isLegacyModeEnabled()) {
-      // SMS should still be filtered in legacy mode
-      context
-          .getSystemService(TelephonyManager.class)
-          .createForPhoneAccountHandle(getPhoneAccountHandle())
-          .setVisualVoicemailSmsFilterSettings(null);
-      VvmLog.i(TAG, "filter disabled");
-    }
-    if (protocol != null) {
+    if (isValid()) {
+      if (!isLegacyModeEnabled()) {
+        // SMS should still be filtered in legacy mode
+        context
+            .getSystemService(TelephonyManager.class)
+            .createForPhoneAccountHandle(getPhoneAccountHandle())
+            .setVisualVoicemailSmsFilterSettings(null);
+        VvmLog.i(TAG, "filter disabled");
+      }
       protocol.startDeactivation(this);
     }
     VvmAccountManager.removeAccount(context, getPhoneAccountHandle());
@@ -461,6 +458,9 @@ public class OmtpVvmCarrierConfigHelper {
     }
 
     PersistableBundle config = telephonyManager.getCarrierConfig();
+    if (config == null) {
+      return null;
+    }
 
     if (TextUtils.isEmpty(config.getString(CarrierConfigManager.KEY_VVM_TYPE_STRING))) {
       return null;

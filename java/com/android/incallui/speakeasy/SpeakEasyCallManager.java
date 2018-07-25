@@ -20,8 +20,8 @@ import android.content.Context;
 import android.support.annotation.NonNull;
 import android.support.v4.app.Fragment;
 import com.android.incallui.call.DialerCall;
-import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ListenableFuture;
+import java.util.Optional;
 
 /** Provides operations necessary to SpeakEasy. */
 public interface SpeakEasyCallManager {
@@ -53,6 +53,16 @@ public interface SpeakEasyCallManager {
    * @param context The application context.
    */
   boolean isAvailable(@NonNull Context context);
+
+  /**
+   * Optional: Performs work necessary to happen-before callers use other methods on this interface.
+   *
+   * @apiNote Use of this API is completely optional, and callers are NOT required to invoke this
+   *     method prior to using other methods on the interface.
+   * @implSpec Other members of this interface always promise to do any required initialization work
+   *     at the time they are invoked. This method will always be idempotent.
+   */
+  default void performManualInitialization() {}
 
   /** Returns the config provider flag associated with the feature. */
   @NonNull

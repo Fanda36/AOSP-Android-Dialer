@@ -18,7 +18,6 @@ package com.android.dialer.inject;
 
 import android.content.Context;
 import android.support.annotation.NonNull;
-import com.android.dialer.common.Assert;
 import dagger.Module;
 import dagger.Provides;
 
@@ -30,7 +29,7 @@ public final class ContextModule {
   @NonNull private final Context context;
 
   public ContextModule(@NonNull Context appContext) {
-    this.context = Assert.isNotNull(appContext);
+    this.context = appContext;
   }
 
   @Provides

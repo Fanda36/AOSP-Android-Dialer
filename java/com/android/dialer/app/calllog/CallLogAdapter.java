@@ -36,6 +36,7 @@ import android.support.annotation.Nullable;
 import android.support.annotation.VisibleForTesting;
 import android.support.annotation.WorkerThread;
 import android.support.v7.app.AlertDialog;
+import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.RecyclerView.ViewHolder;
 import android.telecom.PhoneAccountHandle;
@@ -52,8 +53,6 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import com.android.contacts.common.ContactsUtils;
-import com.android.contacts.common.preference.ContactsPreferences;
-import com.android.dialer.app.DialtactsActivity;
 import com.android.dialer.app.R;
 import com.android.dialer.app.calllog.CallLogFragment.CallLogFragmentListener;
 import com.android.dialer.app.calllog.CallLogGroupBuilder.GroupCreator;
@@ -72,7 +71,8 @@ import com.android.dialer.common.LogUtil;
 import com.android.dialer.common.concurrent.AsyncTaskExecutor;
 import com.android.dialer.common.concurrent.AsyncTaskExecutors;
 import com.android.dialer.compat.android.provider.VoicemailCompat;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
+import com.android.dialer.contacts.ContactsComponent;
 import com.android.dialer.duo.Duo;
 import com.android.dialer.duo.DuoComponent;
 import com.android.dialer.duo.DuoListener;
@@ -100,6 +100,8 @@ import com.google.i18n.phonenumbers.Phonenumber.PhoneNumber;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /** Adapter class to fill in data for the Call Log. */
 public class CallLogAdapter extends GroupingListAdapter
@@ -158,9 +160,12 @@ public class CallLogAdapter extends GroupingListAdapter
   /**
    * Maps a raw input number to match info. We only log one MatchInfo per raw input number to reduce
    * the amount of data logged.
+   *
+   * <p>Note that this has to be a {@link ConcurrentMap} as the match info for each row in the UI is
+   * loaded in a background thread spawned when the ViewHolder is bound.
    */
-  private final Map<String, ContactsProviderMatchInfo> contactsProviderMatchInfos =
-      new ArrayMap<>();
+  private final ConcurrentMap<String, ContactsProviderMatchInfo> contactsProviderMatchInfos =
+      new ConcurrentHashMap<>();
 
   private final ActionMode.Callback actionModeCallback =
       new ActionMode.Callback() {
@@ -223,7 +228,7 @@ public class CallLogAdapter extends GroupingListAdapter
 
   private void showDeleteSelectedItemsDialog() {
     SparseArray<String> voicemailsToDeleteOnConfirmation = selectedItems.clone();
-    new AlertDialog.Builder(activity, R.style.AlertDialogCustom)
+    new AlertDialog.Builder(activity)
         .setCancelable(true)
         .setTitle(
             activity
@@ -286,7 +291,8 @@ public class CallLogAdapter extends GroupingListAdapter
       new View.OnLongClickListener() {
         @Override
         public boolean onLongClick(View v) {
-          if (ConfigProviderBindings.get(v.getContext())
+          if (ConfigProviderComponent.get(v.getContext())
+                  .getConfigProvider()
                   .getBoolean(ENABLE_CALL_LOG_MULTI_SELECT, ENABLE_CALL_LOG_MULTI_SELECT_FLAG)
               && voicemailPlaybackPresenter != null) {
             if (v.getId() == R.id.primary_action_view || v.getId() == R.id.quick_contact_photo) {
@@ -393,16 +399,15 @@ public class CallLogAdapter extends GroupingListAdapter
             if (viewHolder.callType == CallLog.Calls.MISSED_TYPE) {
               CallLogAsyncTaskUtil.markCallAsRead(activity, viewHolder.callIds);
               if (activityType == ACTIVITY_TYPE_DIALTACTS) {
-                if (v.getContext() instanceof MainActivityPeer.PeerSupplier) {
-                  // This is really bad, but we must do this to prevent a dependency cycle, enforce
-                  // best practices in new code, and avoid refactoring DialtactsActivity.
-                  ((FragmentUtilListener)
-                          ((MainActivityPeer.PeerSupplier) v.getContext()).getPeer())
-                      .getImpl(CallLogFragmentListener.class)
-                      .updateTabUnreadCounts();
-                } else {
-                  ((DialtactsActivity) v.getContext()).updateTabUnreadCounts();
-                }
+                Assert.checkState(
+                    v.getContext() instanceof MainActivityPeer.PeerSupplier,
+                    "%s is not a PeerSupplier",
+                    v.getContext().getClass());
+                // This is really bad, but we must do this to prevent a dependency cycle, enforce
+                // best practices in new code, and avoid refactoring DialtactsActivity.
+                ((FragmentUtilListener) ((MainActivityPeer.PeerSupplier) v.getContext()).getPeer())
+                    .getImpl(CallLogFragmentListener.class)
+                    .updateTabUnreadCounts();
               }
             }
             expandViewHolderActions(viewHolder);
@@ -506,7 +511,6 @@ public class CallLogAdapter extends GroupingListAdapter
   private final Map<Long, Integer> dayGroups = new ArrayMap<>();
 
   private boolean loading = true;
-  private ContactsPreferences contactsPreferences;
 
   private boolean isSpamEnabled;
 
@@ -551,13 +555,11 @@ public class CallLogAdapter extends GroupingListAdapter
     callLogGroupBuilder = new CallLogGroupBuilder(activity.getApplicationContext(), this);
     this.filteredNumberAsyncQueryHandler = Assert.isNotNull(filteredNumberAsyncQueryHandler);
 
-    contactsPreferences = new ContactsPreferences(this.activity);
-
     blockReportSpamListener =
         new BlockReportSpamListener(
             this.activity,
             this.activity.findViewById(R.id.call_log_fragment_root),
-            ((Activity) this.activity).getFragmentManager(),
+            ((AppCompatActivity) this.activity).getSupportFragmentManager(),
             this,
             this.filteredNumberAsyncQueryHandler);
     setHasStableIds(true);
@@ -674,7 +676,6 @@ public class CallLogAdapter extends GroupingListAdapter
     if (PermissionsUtil.hasPermission(activity, android.Manifest.permission.READ_CONTACTS)) {
       contactInfoCache.start();
     }
-    contactsPreferences.refreshValue(ContactsPreferences.DISPLAY_ORDER_KEY);
     isSpamEnabled = SpamComponent.get(activity).spamSettings().isSpamEnabled();
     getDuo().registerListener(this);
     notifyDataSetChanged();
@@ -851,7 +852,9 @@ public class CallLogAdapter extends GroupingListAdapter
   }
 
   private boolean isHideableEmergencyNumberRow(@Nullable String number) {
-    if (!ConfigProviderBindings.get(activity).getBoolean(FILTER_EMERGENCY_CALLS_FLAG, false)) {
+    if (!ConfigProviderComponent.get(activity)
+        .getConfigProvider()
+        .getBoolean(FILTER_EMERGENCY_CALLS_FLAG, false)) {
       return false;
     }
     return number != null && PhoneNumberUtils.isEmergencyNumber(number);
@@ -1057,7 +1060,8 @@ public class CallLogAdapter extends GroupingListAdapter
               details.countryIso,
               details.cachedContactInfo,
               position
-                  < ConfigProviderBindings.get(activity)
+                  < ConfigProviderComponent.get(activity)
+                      .getConfigProvider()
                       .getLong("number_of_call_to_do_remote_lookup", 5L));
       logCp2Metrics(details, info);
     }
@@ -1075,7 +1079,8 @@ public class CallLogAdapter extends GroupingListAdapter
       details.contactUri = info.lookupUri;
       details.namePrimary = info.name;
       details.nameAlternative = info.nameAlternative;
-      details.nameDisplayOrder = contactsPreferences.getDisplayOrder();
+      details.nameDisplayOrder =
+          ContactsComponent.get(activity).contactDisplayPreferences().getDisplayOrder();
       details.numberType = info.type;
       details.numberLabel = info.label;
       details.photoUri = info.photoUri;
@@ -1464,6 +1469,7 @@ public class CallLogAdapter extends GroupingListAdapter
     notifyDataSetChanged();
   }
 
+  @WorkerThread
   private void logCp2Metrics(PhoneCallDetails details, ContactInfo contactInfo) {
     if (details == null) {
       return;

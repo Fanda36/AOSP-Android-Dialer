@@ -48,9 +48,12 @@ import com.android.dialer.compat.android.provider.VoicemailCompat;
 import com.android.dialer.compat.telephony.TelephonyManagerCompat;
 import com.android.dialer.logging.ContactSource;
 import com.android.dialer.oem.MotorolaUtils;
+import com.android.dialer.phonenumbercache.CachedNumberLookupService;
+import com.android.dialer.phonenumbercache.PhoneNumberCache;
 import com.android.dialer.phonenumberutil.PhoneNumberHelper;
 import com.android.dialer.spannable.ContentWithLearnMoreSpanner;
 import com.android.dialer.storage.StorageComponent;
+import com.android.dialer.theme.base.ThemeComponent;
 import com.android.dialer.util.DialerUtils;
 import com.android.voicemail.VoicemailClient;
 import com.android.voicemail.VoicemailComponent;
@@ -75,6 +78,8 @@ public class PhoneCallDetailsHelper
   private final CallLogCache callLogCache;
   /** Calendar used to construct dates */
   private final Calendar calendar;
+
+  private final CachedNumberLookupService cachedNumberLookupService;
   /** The injected current time in milliseconds since the epoch. Used only by tests. */
   private Long currentTimeMillisForTest;
 
@@ -94,6 +99,7 @@ public class PhoneCallDetailsHelper
     this.resources = resources;
     this.callLogCache = callLogCache;
     calendar = Calendar.getInstance();
+    cachedNumberLookupService = PhoneNumberCache.get(context).getCachedNumberLookupService();
   }
 
   static boolean shouldShowVoicemailDonationPromo(
@@ -124,7 +130,7 @@ public class PhoneCallDetailsHelper
   }
 
   /** Returns true if primary name is empty or the data is from Cequint Caller ID. */
-  private static boolean shouldShowLocation(PhoneCallDetails details) {
+  private boolean shouldShowLocation(PhoneCallDetails details) {
     if (TextUtils.isEmpty(details.geocode)) {
       return false;
     }
@@ -132,6 +138,11 @@ public class PhoneCallDetailsHelper
     if (details.sourceType == ContactSource.Type.SOURCE_TYPE_CEQUINT_CALLER_ID) {
       return true;
     }
+    if (cachedNumberLookupService != null
+        && cachedNumberLookupService.isBusiness(details.sourceType)) {
+      return true;
+    }
+
     // Don't bother showing geo location for contacts.
     if (!TextUtils.isEmpty(details.namePrimary)) {
       return false;
@@ -269,9 +280,9 @@ public class PhoneCallDetailsHelper
     views.voicemailTranscriptionBrandingView.setTypeface(typeface);
     views.callLocationAndDate.setTypeface(typeface);
     views.callLocationAndDate.setTextColor(
-        ContextCompat.getColor(
-            context,
-            details.isRead ? R.color.call_log_detail_color : R.color.call_log_unread_text_color));
+        details.isRead
+            ? ThemeComponent.get(context).theme().getTextColorSecondary()
+            : ThemeComponent.get(context).theme().getTextColorPrimary());
   }
 
   private void setNameView(PhoneCallDetailsViews views, PhoneCallDetails details) {
@@ -392,17 +403,11 @@ public class PhoneCallDetailsHelper
     textView.setMovementMethod(LinkMovementMethod.getInstance());
     Button positiveButton = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
     if (positiveButton != null) {
-      positiveButton.setTextColor(
-          context
-              .getResources()
-              .getColor(R.color.voicemail_donation_promo_positive_button_text_color));
+      positiveButton.setTextColor(ThemeComponent.get(context).theme().getColorPrimary());
     }
     Button negativeButton = dialog.getButton(DialogInterface.BUTTON_NEGATIVE);
     if (negativeButton != null) {
-      negativeButton.setTextColor(
-          context
-              .getResources()
-              .getColor(R.color.voicemail_donation_promo_negative_button_text_color));
+      negativeButton.setTextColor(ThemeComponent.get(context).theme().getTextColorSecondary());
     }
   }
 
@@ -487,7 +492,6 @@ public class PhoneCallDetailsHelper
                 : Phone.getTypeLabel(resources, details.numberType, details.numberLabel);
       }
     }
-
     if (!TextUtils.isEmpty(details.namePrimary) && TextUtils.isEmpty(numberFormattedLabel)) {
       numberFormattedLabel = details.displayNumber;
     }

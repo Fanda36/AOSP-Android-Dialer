@@ -15,12 +15,10 @@
  */
 package com.android.dialer.oem;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Build.VERSION_CODES;
 import android.support.annotation.AnyThread;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
@@ -30,7 +28,7 @@ import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.LogUtil;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
 import com.google.auto.value.AutoValue;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -43,7 +41,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * Cequint Caller ID. It also caches any information fetched in static map, which lives through
  * whole application lifecycle.
  */
-@TargetApi(VERSION_CODES.N)
 public class CequintCallerIdManager {
 
   @VisibleForTesting
@@ -113,7 +110,9 @@ public class CequintCallerIdManager {
   /** Check whether Cequint Caller ID provider package is available and enabled. */
   @AnyThread
   public static synchronized boolean isCequintCallerIdEnabled(@NonNull Context context) {
-    if (!ConfigProviderBindings.get(context).getBoolean(CONFIG_CALLER_ID_ENABLED, true)) {
+    if (!ConfigProviderComponent.get(context)
+        .getConfigProvider()
+        .getBoolean(CONFIG_CALLER_ID_ENABLED, true)) {
       return false;
     }
     if (!hasAlreadyCheckedCequintCallerIdPackage) {

@@ -16,12 +16,30 @@
   -->
 
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+
   <!--
-    A string to describe available action for accessibility user.
-    It will be read as "expand menu for this call log entry".
+    A string informing a11y users that activating a call log entry will expand the menu
+    (a bottom sheet) for it.
+    [CHAR LIMIT=NONE]
   -->
-  <string name="a11y_new_call_log_expand_menu_for_entry">
-    Expand menu for this call log entry
+  <string name="a11y_new_call_log_entry_tap_action">expand menu</string>
+
+  <!--
+    A string describing the call button of a call log entry for a11y users.
+    An example will be read as "call Jane Smith".
+    [CHAR LIMIT=NONE]
+  -->
+  <string name="a11y_new_call_log_entry_voice_call">
+    call <xliff:g example="Jane Smith" id="primaryTextForEntry">^1</xliff:g>
+  </string>
+
+  <!--
+    A string describing the call button of a call log entry for a11y users.
+    An example will be read as "make a video call to Jane Smith".
+    [CHAR LIMIT=NONE]
+  -->
+  <string name="a11y_new_call_log_entry_video_call">
+    make a video call to <xliff:g example="Jane Smith" id="primaryTextForEntry">^1</xliff:g>
   </string>
 
   <!-- Header in call log to group calls from the current day.  [CHAR LIMIT=30] -->
@@ -32,16 +50,6 @@
 
   <!-- Header in call log to group calls from before yesterday.  [CHAR LIMIT=30] -->
   <string name="new_call_log_header_older">Older</string>
-
-  <!-- Header on the Duo disclosure card. [CHAR_LIMIT=60] -->
-  <string name="new_call_log_duo_disclosure_card_header">
-    Make video calls with Duo
-  </string>
-
-  <!-- Details on the Duo disclosure card. [CHAR_LIMIT=200] -->
-  <string name="new_call_log_duo_disclosure_card_details">
-    Google Duo video calling lets you chat with friends and family face-to-face. Data charges may apply. <xliff:g example="Learn More">%1$s</xliff:g>
-  </string>
 
   <!-- Shown as a prompt to turn on the phone permission to enable the call log [CHAR LIMIT=NONE]-->
   <string name="new_call_log_permission_no_calllog">To see your call log, turn on the Phone permission.</string>
