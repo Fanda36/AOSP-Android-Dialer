@@ -51,11 +51,12 @@ import android.text.method.LinkMovementMethod;
 import android.view.ActionMode;
 import android.view.DragEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
 import com.android.contacts.common.list.OnPhoneNumberPickerActionListener;
 import com.android.dialer.animation.AnimUtils;
-import com.android.dialer.app.DialtactsActivity;
+import com.android.dialer.app.MainComponent;
 import com.android.dialer.app.calllog.CallLogAdapter;
 import com.android.dialer.app.calllog.CallLogFragment;
 import com.android.dialer.app.calllog.CallLogFragment.CallLogFragmentListener;
@@ -81,7 +82,7 @@ import com.android.dialer.common.concurrent.DefaultFutureCallback;
 import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.common.concurrent.ThreadUtil;
 import com.android.dialer.common.concurrent.UiListener;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
 import com.android.dialer.constants.ActivityRequestCodes;
 import com.android.dialer.contactsfragment.ContactsFragment;
 import com.android.dialer.contactsfragment.ContactsFragment.Header;
@@ -109,12 +110,15 @@ import com.android.dialer.metrics.MetricsComponent;
 import com.android.dialer.postcall.PostCall;
 import com.android.dialer.precall.PreCall;
 import com.android.dialer.promotion.Promotion;
-import com.android.dialer.promotion.RttPromotion;
+import com.android.dialer.promotion.Promotion.PromotionType;
+import com.android.dialer.promotion.PromotionComponent;
 import com.android.dialer.searchfragment.list.NewSearchFragment.SearchFragmentListener;
 import com.android.dialer.smartdial.util.SmartDialPrefix;
 import com.android.dialer.speeddial.SpeedDialFragment;
 import com.android.dialer.storage.StorageComponent;
 import com.android.dialer.telecom.TelecomUtil;
+import com.android.dialer.theme.base.Theme;
+import com.android.dialer.theme.base.ThemeComponent;
 import com.android.dialer.util.DialerUtils;
 import com.android.dialer.util.PermissionsUtil;
 import com.android.dialer.util.TransactionSafeActivity;
@@ -128,6 +132,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -227,10 +232,28 @@ public class OldMainActivityPeer implements MainActivityPeer, FragmentUtilListen
   @Override
   public void onActivityCreate(Bundle savedInstanceState) {
     LogUtil.enterBlock("OldMainActivityPeer.onActivityCreate");
+    setTheme();
     activity.setContentView(R.layout.main_activity);
     initUiListeners();
     initLayout(savedInstanceState);
     SmartDialPrefix.initializeNanpSettings(activity);
+  }
+
+  /** should be called before {@link AppCompatActivity#setContentView(int)}. */
+  private void setTheme() {
+    @Theme.Type int theme = ThemeComponent.get(activity).theme().getTheme();
+    switch (theme) {
+      case Theme.DARK:
+        activity.setTheme(R.style.MainActivityTheme_Dark);
+        break;
+      case Theme.LIGHT:
+      case Theme.LIGHT_M2:
+        activity.setTheme(R.style.MainActivityTheme);
+        break;
+      case Theme.UNKNOWN:
+      default:
+        throw new IllegalArgumentException("Invalid theme.");
+    }
   }
 
   private void initUiListeners() {
@@ -312,7 +335,12 @@ public class OldMainActivityPeer implements MainActivityPeer, FragmentUtilListen
             activity.findViewById(R.id.remove_view),
             activity.findViewById(R.id.search_view_container),
             toolbar);
-    speedDialFragmentHost = new MainSpeedDialFragmentHost(toolbar);
+    speedDialFragmentHost =
+        new MainSpeedDialFragmentHost(
+            toolbar,
+            activity.findViewById(R.id.root_layout),
+            activity.findViewById(R.id.coordinator_layout),
+            activity.findViewById(R.id.fragment_container));
 
     lastTabController = new LastTabController(activity, bottomNav, showVoicemailTab);
 
@@ -370,7 +398,7 @@ public class OldMainActivityPeer implements MainActivityPeer, FragmentUtilListen
   private static boolean isVoicemailAvailable(
       Context context, PhoneAccountHandle defaultUserSelectedAccount) {
 
-    if (!TelecomUtil.hasReadPhoneStatePermission(context)) {
+    if (!PermissionsUtil.hasReadPhoneStatePermissions(context)) {
       LogUtil.i(
           "OldMainActivityPeer.isVoicemailAvailable",
           "No read phone permisison or not the default dialer.");
@@ -419,11 +447,9 @@ public class OldMainActivityPeer implements MainActivityPeer, FragmentUtilListen
     } else if (isShowTabIntent(intent)) {
       LogUtil.i("OldMainActivityPeer.onHandleIntent", "Show tab intent");
       tabToSelect = getTabFromIntent(intent);
-    } else if (lastTabController.isEnabled) {
+    } else {
       LogUtil.i("OldMainActivityPeer.onHandleIntent", "Show last tab");
       tabToSelect = lastTabController.getLastTab();
-    } else {
-      tabToSelect = TabIndex.SPEED_DIAL;
     }
     logImpressionForSelectedTab(tabToSelect);
     bottomNav.selectTab(tabToSelect);
@@ -435,7 +461,7 @@ public class OldMainActivityPeer implements MainActivityPeer, FragmentUtilListen
       Logger.get(activity).logImpression(DialerImpression.Type.MAIN_OPEN_WITH_DIALPAD);
     }
 
-    if (intent.getBooleanExtra(DialtactsActivity.EXTRA_CLEAR_NEW_VOICEMAILS, false)) {
+    if (intent.getBooleanExtra(MainComponent.EXTRA_CLEAR_NEW_VOICEMAILS, false)) {
       LogUtil.i("OldMainActivityPeer.onHandleIntent", "clearing all new voicemails");
       CallLogNotificationsService.markAllNewVoicemailsAsOld(activity);
     }
@@ -1235,14 +1261,31 @@ public class OldMainActivityPeer implements MainActivityPeer, FragmentUtilListen
   private static final class MainSpeedDialFragmentHost implements SpeedDialFragment.HostInterface {
 
     private final MainToolbar toolbar;
+    private final ViewGroup rootLayout;
+    private final ViewGroup coordinatorLayout;
+    private final ViewGroup fragmentContainer;
 
-    MainSpeedDialFragmentHost(MainToolbar toolbar) {
+    MainSpeedDialFragmentHost(
+        MainToolbar toolbar,
+        ViewGroup rootLayout,
+        ViewGroup coordinatorLayout,
+        ViewGroup fragmentContainer) {
       this.toolbar = toolbar;
+      this.rootLayout = rootLayout;
+      this.coordinatorLayout = coordinatorLayout;
+      this.fragmentContainer = fragmentContainer;
     }
 
     @Override
     public void setHasFrequents(boolean hasFrequents) {
       toolbar.showClearFrequents(hasFrequents);
+    }
+
+    @Override
+    public void dragFavorite(boolean start) {
+      rootLayout.setClipChildren(!start);
+      coordinatorLayout.setClipChildren(!start);
+      fragmentContainer.setClipChildren(!start);
     }
   }
 
@@ -1291,7 +1334,9 @@ public class OldMainActivityPeer implements MainActivityPeer, FragmentUtilListen
       Logger.get(activity).logScreenView(ScreenEvent.Type.MAIN_SPEED_DIAL, activity);
       selectedTab = TabIndex.SPEED_DIAL;
 
-      if (ConfigProviderBindings.get(activity).getBoolean("enable_new_favorites_tab", false)) {
+      if (ConfigProviderComponent.get(activity)
+          .getConfigProvider()
+          .getBoolean("enable_new_favorites_tab", false)) {
         android.support.v4.app.Fragment supportFragment =
             supportFragmentManager.findFragmentByTag(SPEED_DIAL_TAG);
         showSupportFragment(
@@ -1327,14 +1372,17 @@ public class OldMainActivityPeer implements MainActivityPeer, FragmentUtilListen
     }
 
     private static void showPromotionBottomSheet(Context context, View view) {
-      // TODO(a bug): Use a promotion manager to get promotion to show.
-      Promotion promotion = new RttPromotion(context);
       BottomSheetBehavior<View> bottomSheetBehavior = BottomSheetBehavior.from(view);
-
-      if (!promotion.shouldShow()) {
+      Optional<Promotion> promotionOptional =
+          PromotionComponent.get(context)
+              .promotionManager()
+              .getHighestPriorityPromotion(PromotionType.BOTTOM_SHEET);
+      if (!promotionOptional.isPresent()) {
         bottomSheetBehavior.setState(BottomSheetBehavior.STATE_HIDDEN);
         return;
       }
+
+      Promotion promotion = promotionOptional.get();
       ImageView icon = view.findViewById(R.id.promotion_icon);
       icon.setImageResource(promotion.getIconRes());
       TextView details = view.findViewById(R.id.promotion_details);
@@ -1586,26 +1634,26 @@ public class OldMainActivityPeer implements MainActivityPeer, FragmentUtilListen
 
     private final Context context;
     private final BottomNavBar bottomNavBar;
-    private final boolean isEnabled;
     private final boolean canShowVoicemailTab;
 
     LastTabController(Context context, BottomNavBar bottomNavBar, boolean canShowVoicemailTab) {
       this.context = context;
       this.bottomNavBar = bottomNavBar;
-      isEnabled = ConfigProviderBindings.get(context).getBoolean("last_tab_enabled", false);
       this.canShowVoicemailTab = canShowVoicemailTab;
     }
 
-    /** Sets the last tab if the feature is enabled, otherwise defaults to speed dial. */
+    /**
+     * Get the last tab shown to the user, or the speed dial tab if this is the first time the user
+     * has opened the app.
+     */
     @TabIndex
     int getLastTab() {
       @TabIndex int tabIndex = TabIndex.SPEED_DIAL;
-      if (isEnabled) {
-        tabIndex =
-            StorageComponent.get(context)
-                .unencryptedSharedPrefs()
-                .getInt(KEY_LAST_TAB, TabIndex.SPEED_DIAL);
-      }
+
+      tabIndex =
+          StorageComponent.get(context)
+              .unencryptedSharedPrefs()
+              .getInt(KEY_LAST_TAB, TabIndex.SPEED_DIAL);
 
       // If the voicemail tab cannot be shown, default to showing speed dial
       if (tabIndex == TabIndex.VOICEMAIL && !canShowVoicemailTab) {

@@ -62,7 +62,7 @@ import com.android.dialer.common.LogUtil;
 import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.common.concurrent.ThreadUtil;
 import com.android.dialer.common.concurrent.UiListener;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.logging.ScreenEvent;
 import com.android.dialer.metrics.Metrics;
@@ -101,12 +101,12 @@ import com.android.incallui.video.bindings.VideoBindings;
 import com.android.incallui.video.protocol.VideoCallScreen;
 import com.android.incallui.video.protocol.VideoCallScreenDelegate;
 import com.android.incallui.video.protocol.VideoCallScreenDelegateFactory;
-import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /** Version of {@link InCallActivity} that shows the new UI */
 public class InCallActivity extends TransactionSafeFragmentActivity
@@ -129,7 +129,7 @@ public class InCallActivity extends TransactionSafeFragmentActivity
   private static final int DIALPAD_REQUEST_SHOW = 2;
   private static final int DIALPAD_REQUEST_HIDE = 3;
 
-  private static Optional<Integer> audioRouteForTesting = Optional.absent();
+  private static Optional<Integer> audioRouteForTesting = Optional.empty();
 
   private SelectPhoneAccountListener selectPhoneAccountListener;
   private UiListener<Result> preferredAccountWorkerResultListener;
@@ -159,6 +159,7 @@ public class InCallActivity extends TransactionSafeFragmentActivity
   private int[] backgroundDrawableColors;
   @DialpadRequestType private int showDialpadRequest = DIALPAD_REQUEST_NONE;
   private SpeakEasyCallManager speakEasyCallManager;
+  private DialogFragment rttRequestDialogFragment;
 
   public static Intent getIntent(
       Context context, boolean showDialpad, boolean newOutgoingCall, boolean isForFullScreen) {
@@ -197,6 +198,7 @@ public class InCallActivity extends TransactionSafeFragmentActivity
       didShowInCallScreen = bundle.getBoolean(KeysForSavedInstance.DID_SHOW_IN_CALL_SCREEN);
       didShowVideoCallScreen = bundle.getBoolean(KeysForSavedInstance.DID_SHOW_VIDEO_CALL_SCREEN);
       didShowRttCallScreen = bundle.getBoolean(KeysForSavedInstance.DID_SHOW_RTT_CALL_SCREEN);
+      didShowSpeakEasyScreen = bundle.getBoolean(KeysForSavedInstance.DID_SHOW_SPEAK_EASY_SCREEN);
     }
 
     setWindowFlags();
@@ -378,16 +380,17 @@ public class InCallActivity extends TransactionSafeFragmentActivity
         this,
         preferredAccountFuture,
         result -> {
-          if (!isVisible()) {
-            LogUtil.i(
-                "CallingAccountSelector.showPhoneAccountSelectionDialog",
-                "activity ended before result returned");
-            return;
-          }
           String callId = waitingForAccountCall.getId();
           if (result.getSelectedPhoneAccountHandle().isPresent()) {
             selectPhoneAccountListener.onPhoneAccountSelected(
                 result.getSelectedPhoneAccountHandle().get(), false, callId);
+            return;
+          }
+
+          if (!isVisible()) {
+            LogUtil.i(
+                "InCallActivity.showPhoneAccountSelectionDialog",
+                "activity ended before result returned");
             return;
           }
 
@@ -488,7 +491,6 @@ public class InCallActivity extends TransactionSafeFragmentActivity
       }
       showDialpadRequest = DIALPAD_REQUEST_NONE;
     }
-    updateNavigationBar(isDialpadVisible());
 
     CallList.getInstance()
         .onInCallUiShown(getIntent().getBooleanExtra(IntentExtraNames.FOR_FULL_SCREEN, false));
@@ -807,10 +809,6 @@ public class InCallActivity extends TransactionSafeFragmentActivity
       sensor.onDialpadVisible(show);
     }
     showDialpadRequest = DIALPAD_REQUEST_NONE;
-
-    // Note:  onInCallScreenDialpadVisibilityChange is called here to ensure that the dialpad FAB
-    // repositions itself.
-    getInCallOrRttCallScreen().onInCallScreenDialpadVisibilityChange(show);
   }
 
   private void showDialpadFragment() {
@@ -835,7 +833,7 @@ public class InCallActivity extends TransactionSafeFragmentActivity
     dialpadFragmentManager.executePendingTransactions();
 
     Logger.get(this).logScreenView(ScreenEvent.Type.INCALL_DIALPAD, this);
-    updateNavigationBar(true /* isDialpadVisible */);
+    getInCallOrRttCallScreen().onInCallScreenDialpadVisibilityChange(true);
   }
 
   private void hideDialpadFragment() {
@@ -851,8 +849,8 @@ public class InCallActivity extends TransactionSafeFragmentActivity
       transaction.commitAllowingStateLoss();
       dialpadFragmentManager.executePendingTransactions();
       dialpadFragment.setUserVisibleHint(false);
+      getInCallOrRttCallScreen().onInCallScreenDialpadVisibilityChange(false);
     }
-    updateNavigationBar(false /* isDialpadVisible */);
   }
 
   public boolean isDialpadVisible() {
@@ -1179,25 +1177,8 @@ public class InCallActivity extends TransactionSafeFragmentActivity
 
   public void showDialogForRttRequest(DialerCall call, int rttRequestId) {
     LogUtil.enterBlock("InCallActivity.showDialogForRttRequest");
-    DialogFragment fragment = RttRequestDialogFragment.newInstance(call.getId(), rttRequestId);
-    fragment.show(getSupportFragmentManager(), Tags.RTT_REQUEST_DIALOG);
-  }
-
-  @Override
-  public void onMultiWindowModeChanged(boolean isInMultiWindowMode) {
-    super.onMultiWindowModeChanged(isInMultiWindowMode);
-    updateNavigationBar(isDialpadVisible());
-  }
-
-  private void updateNavigationBar(boolean isDialpadVisible) {
-    if (isInMultiWindowMode()) {
-      return;
-    }
-
-    View navigationBarBackground = getWindow().findViewById(R.id.navigation_bar_background);
-    if (navigationBarBackground != null) {
-      navigationBarBackground.setVisibility(isDialpadVisible ? View.VISIBLE : View.GONE);
-    }
+    rttRequestDialogFragment = RttRequestDialogFragment.newInstance(call.getId(), rttRequestId);
+    rttRequestDialogFragment.show(getSupportFragmentManager(), Tags.RTT_REQUEST_DIALOG);
   }
 
   public void setAllowOrientationChange(boolean allowOrientationChange) {
@@ -1376,6 +1357,16 @@ public class InCallActivity extends TransactionSafeFragmentActivity
             : CallList.getInstance().getActiveCall();
 
     if (call == null) {
+      // This is a special case where the first call is not automatically resumed
+      // after the second active call is remotely disconnected.
+      DialerCall backgroundCall = CallList.getInstance().getBackgroundCall();
+      if (backgroundCall != null && backgroundCall.isSpeakEasyCall()) {
+        LogUtil.i("InCallActivity.getShouldShowSpeakEasyUi", "taking call off hold");
+
+        backgroundCall.unhold();
+        return new ShouldShowUiResult(true, backgroundCall);
+      }
+
       return new ShouldShowUiResult(false, call);
     }
 
@@ -1527,7 +1518,8 @@ public class InCallActivity extends TransactionSafeFragmentActivity
       LogUtil.i("InCallActivity.shouldAllowAnswerAndRelease", "video call");
       return false;
     }
-    if (!ConfigProviderBindings.get(this)
+    if (!ConfigProviderComponent.get(this)
+        .getConfigProvider()
         .getBoolean(ConfigNames.ANSWER_AND_RELEASE_ENABLED, true)) {
       LogUtil.i("InCallActivity.shouldAllowAnswerAndRelease", "disabled by config");
       return false;
@@ -1574,16 +1566,23 @@ public class InCallActivity extends TransactionSafeFragmentActivity
 
   private boolean showRttCallScreenFragment(FragmentTransaction transaction, DialerCall call) {
     if (didShowRttCallScreen) {
-      // This shouldn't happen since only one RTT call is allow at same time.
-      if (!getRttCallScreen().getCallId().equals(call.getId())) {
-        LogUtil.e("InCallActivity.showRttCallScreenFragment", "RTT call id doesn't match");
+      if (getRttCallScreen().getCallId().equals(call.getId())) {
+        return false;
       }
-      return false;
+      LogUtil.i("InCallActivity.showRttCallScreenFragment", "RTT call id doesn't match");
+      hideRttCallScreenFragment(transaction);
     }
     RttCallScreen rttCallScreen = RttBindings.createRttCallScreen(call.getId());
     transaction.add(R.id.main, rttCallScreen.getRttCallScreenFragment(), Tags.RTT_CALL_SCREEN);
     Logger.get(this).logScreenView(ScreenEvent.Type.INCALL, this);
     didShowRttCallScreen = true;
+    // In some cases such as VZW, RTT request will be automatically accepted by modem. So the dialog
+    // won't make any sense and should be dismissed if it's already switched to RTT.
+    if (rttRequestDialogFragment != null) {
+      LogUtil.i("InCallActivity.showRttCallScreenFragment", "dismiss RTT request dialog");
+      rttRequestDialogFragment.dismiss();
+      rttRequestDialogFragment = null;
+    }
     return true;
   }
 

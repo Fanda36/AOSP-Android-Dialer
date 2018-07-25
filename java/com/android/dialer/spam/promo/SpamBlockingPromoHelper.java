@@ -17,7 +17,6 @@
 package com.android.dialer.spam.promo;
 
 import android.annotation.SuppressLint;
-import android.app.FragmentManager;
 import android.app.Notification;
 import android.app.Notification.Builder;
 import android.app.PendingIntent;
@@ -25,10 +24,11 @@ import android.content.Context;
 import android.content.DialogInterface.OnDismissListener;
 import android.graphics.drawable.Icon;
 import android.support.design.widget.Snackbar;
+import android.support.v4.app.FragmentManager;
 import android.support.v4.os.BuildCompat;
 import android.view.View;
 import android.widget.Toast;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
 import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.notification.DialerNotificationManager;
@@ -36,6 +36,7 @@ import com.android.dialer.notification.NotificationChannelId;
 import com.android.dialer.spam.SpamSettings;
 import com.android.dialer.spam.promo.SpamBlockingPromoDialogFragment.OnEnableListener;
 import com.android.dialer.storage.StorageComponent;
+import com.android.dialer.theme.base.ThemeComponent;
 
 /** Helper class for showing spam blocking on-boarding promotions. */
 public class SpamBlockingPromoHelper {
@@ -64,7 +65,9 @@ public class SpamBlockingPromoHelper {
    * @return true if we should show a spam blocking promo.
    */
   public boolean shouldShowSpamBlockingPromo() {
-    if (!ConfigProviderBindings.get(context).getBoolean(ENABLE_SPAM_BLOCKING_PROMO, false)
+    if (!ConfigProviderComponent.get(context)
+            .getConfigProvider()
+            .getBoolean(ENABLE_SPAM_BLOCKING_PROMO, false)
         || !spamSettings.isSpamEnabled()
         || !spamSettings.isSpamBlockingEnabledByFlag()
         || spamSettings.isSpamBlockingEnabledByUser()) {
@@ -76,7 +79,8 @@ public class SpamBlockingPromoHelper {
             .unencryptedSharedPrefs()
             .getLong(SPAM_BLOCKING_PROMO_LAST_SHOW_MILLIS, 0);
     long showPeriodMillis =
-        ConfigProviderBindings.get(context)
+        ConfigProviderComponent.get(context)
+            .getConfigProvider()
             .getLong(SPAM_BLOCKING_PROMO_PERIOD_MILLIS, Long.MAX_VALUE);
     return lastShowMillis == 0 || System.currentTimeMillis() - lastShowMillis > showPeriodMillis;
   }
@@ -84,7 +88,8 @@ public class SpamBlockingPromoHelper {
   /* Returns true if we should show a spam blocking promo in after call notification scenario. */
   public boolean shouldShowAfterCallSpamBlockingPromo() {
     return shouldShowSpamBlockingPromo()
-        && ConfigProviderBindings.get(context)
+        && ConfigProviderComponent.get(context)
+            .getConfigProvider()
             .getBoolean(ENABLE_AFTER_CALL_SPAM_BLOCKING_PROMO, false);
   }
 
@@ -178,7 +183,7 @@ public class SpamBlockingPromoHelper {
             .setContentIntent(contentIntent)
             .setCategory(Notification.CATEGORY_STATUS)
             .setPriority(Notification.PRIORITY_DEFAULT)
-            .setColor(context.getColor(R.color.dialer_theme_color))
+            .setColor(ThemeComponent.get(context).theme().getColorPrimary())
             .setSmallIcon(R.drawable.quantum_ic_call_vd_theme_24)
             .setLargeIcon(Icon.createWithResource(context, R.drawable.spam_blocking_promo_icon))
             .setContentText(context.getString(R.string.spam_blocking_promo_text))

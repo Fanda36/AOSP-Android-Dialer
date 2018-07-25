@@ -23,8 +23,8 @@ import dagger.Binds;
 import dagger.Module;
 import javax.inject.Singleton;
 
-@InstallIn(variants = {DialerVariant.DIALER_TEST})
 @Module
+@InstallIn(variants = DialerVariant.DIALER_TEST)
 public abstract class StubDuoModule {
 
   @Binds

@@ -18,6 +18,7 @@ package com.android.incallui.incall.impl;
 
 import android.Manifest.permission;
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
@@ -36,6 +37,7 @@ import android.view.View;
 import android.view.View.OnAttachStateChangeListener;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
@@ -47,7 +49,6 @@ import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.multimedia.MultimediaData;
 import com.android.dialer.strictmode.StrictModeUtils;
-import com.android.dialer.util.ViewUtil;
 import com.android.dialer.widget.LockableViewPager;
 import com.android.incallui.audioroute.AudioRouteSelectorDialogFragment;
 import com.android.incallui.audioroute.AudioRouteSelectorDialogFragment.AudioRouteSelectorPresenter;
@@ -147,6 +148,7 @@ public class InCallFragment extends Fragment
       @Nullable ViewGroup viewGroup,
       @Nullable Bundle bundle) {
     LogUtil.i("InCallFragment.onCreateView", null);
+    getActivity().setTheme(R.style.Theme_InCallScreen);
     // Bypass to avoid StrictModeResourceMismatchViolation
     final View view =
         StrictModeUtils.bypass(
@@ -179,8 +181,6 @@ public class InCallFragment extends Fragment
     }
     // TODO(a bug): Change to use corresponding phone type used for current call.
     phoneType = getContext().getSystemService(TelephonyManager.class).getPhoneType();
-    View space = view.findViewById(R.id.navigation_bar_background);
-    space.getLayoutParams().height = ViewUtil.getNavigationBarHeight(getContext());
 
     // Workaround to adjust padding for status bar and navigation bar since fitsSystemWindows
     // doesn't work well when switching with other fragments.
@@ -395,6 +395,11 @@ public class InCallFragment extends Fragment
       // Update the Android Button's state to isShowing.
       inCallButtonGridFragment.onInCallScreenDialpadVisibilityChange(isShowing);
     }
+    Activity activity = getActivity();
+    Window window = activity.getWindow();
+    window.setNavigationBarColor(
+        activity.getColor(
+            isShowing ? android.R.color.background_dark : android.R.color.transparent));
   }
 
   @Override

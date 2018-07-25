@@ -21,6 +21,7 @@ import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.os.Build.VERSION_CODES;
+import android.os.PersistableBundle;
 import android.support.annotation.NonNull;
 import android.support.v4.os.BuildCompat;
 import android.telecom.PhoneAccount;
@@ -37,6 +38,7 @@ import com.android.dialer.notification.DialerNotificationManager;
 import com.android.dialer.notification.NotificationChannelManager;
 import com.android.dialer.phonenumberutil.PhoneNumberHelper;
 import com.android.dialer.telecom.TelecomUtil;
+import com.android.dialer.theme.base.ThemeComponent;
 
 /** Shows a notification in the status bar for legacy vociemail. */
 @TargetApi(VERSION_CODES.O)
@@ -97,11 +99,14 @@ public final class LegacyVoicemailNotifier {
         context
             .getResources()
             .getQuantityString(R.plurals.notification_voicemail_title, count, count);
-    boolean isOngoing =
-        pinnedTelephonyManager
-            .getCarrierConfig()
-            .getBoolean(CarrierConfigManager.KEY_VOICEMAIL_NOTIFICATION_PERSISTENT_BOOL);
-
+    PersistableBundle config = pinnedTelephonyManager.getCarrierConfig();
+    boolean isOngoing;
+    if (config == null) {
+      isOngoing = false;
+    } else {
+      isOngoing =
+          config.getBoolean(CarrierConfigManager.KEY_VOICEMAIL_NOTIFICATION_PERSISTENT_BOOL);
+    }
     String contentText;
     PendingIntent contentIntent;
     if (!TextUtils.isEmpty(voicemailNumber) && callVoicemailIntent != null) {
@@ -115,7 +120,7 @@ public final class LegacyVoicemailNotifier {
     Notification.Builder builder =
         new Notification.Builder(context)
             .setSmallIcon(android.R.drawable.stat_notify_voicemail)
-            .setColor(context.getColor(R.color.dialer_theme_color))
+            .setColor(ThemeComponent.get(context).theme().getColorPrimary())
             .setWhen(System.currentTimeMillis())
             .setContentTitle(notificationTitle)
             .setContentText(contentText)

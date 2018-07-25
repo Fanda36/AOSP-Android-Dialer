@@ -113,7 +113,6 @@ public class VisualVoicemailCallLogFragment extends CallLogFragment {
     setupView(view);
     EmptyContentView emptyContentView = view.findViewById(R.id.empty_list_view);
     emptyContentView.setImage(R.drawable.quantum_ic_voicemail_vd_theme_24);
-    emptyContentView.setImageTint(R.color.empty_voicemail_icon_tint_color, null);
     return view;
   }
 
@@ -128,6 +127,12 @@ public class VisualVoicemailCallLogFragment extends CallLogFragment {
   public void onPause() {
     voicemailPlaybackPresenter.onPause();
     voicemailErrorManager.onPause();
+    // Necessary to reset the speaker when leaving otherwise the platform will still remain in
+    // speaker mode
+    AudioManager audioManager = getContext().getSystemService(AudioManager.class);
+    if (audioManager.isSpeakerphoneOn()) {
+      audioManager.setSpeakerphoneOn(false);
+    }
     super.onPause();
   }
 
@@ -182,10 +187,10 @@ public class VisualVoicemailCallLogFragment extends CallLogFragment {
   }
 
   @VisibleForTesting
-  static boolean shouldAutoSync(
+  boolean shouldAutoSync(
       VoicemailErrorMessageCreator errorMessageCreator, List<VoicemailStatus> statuses) {
     for (VoicemailStatus status : statuses) {
-      if (!status.isActive()) {
+      if (!status.isActive(getContext())) {
         continue;
       }
       if (errorMessageCreator.isSyncBlockingError(status)) {

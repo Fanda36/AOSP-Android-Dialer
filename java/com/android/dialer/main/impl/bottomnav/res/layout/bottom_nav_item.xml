@@ -22,7 +22,7 @@
     android:minWidth="80dp"
     android:minHeight="56dp"
     android:gravity="center"
-    android:background="?android:selectableItemBackgroundBorderless">
+    android:background="?android:attr/selectableItemBackgroundBorderless">
 
   <FrameLayout
       android:layout_width="wrap_content"
@@ -47,7 +47,7 @@
         android:minWidth="20dp"
         android:gravity="center"
         android:textSize="12sp"
-        android:textColor="@color/dialer_primary_text_color_white"
+        android:textColor="?android:attr/textColorPrimaryInverse"
         android:background="@drawable/notification_badge"
         android:fontFamily="sans-serif-medium"
         android:visibility="invisible"/>
@@ -58,7 +58,7 @@
       android:layout_width="wrap_content"
       android:layout_height="wrap_content"
       android:layout_marginBottom="8dp"
+      android:gravity="center_horizontal"
       android:textSize="12sp"
-      android:textColor="@color/dialer_theme_color"
-      android:gravity="center_horizontal"/>
+      style="@style/Dialer.TextAppearance.Secondary"/>
 </com.android.dialer.main.impl.bottomnav.BottomNavItem>

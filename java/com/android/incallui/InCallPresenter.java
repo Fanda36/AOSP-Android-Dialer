@@ -365,8 +365,7 @@ public class InCallPresenter implements CallList.Listener, AudioModeProvider.Aud
     addListener(this.proximitySensor);
 
     if (themeColorManager == null) {
-      themeColorManager =
-          new ThemeColorManager(new InCallUIMaterialColorMapUtils(this.context.getResources()));
+      themeColorManager = new ThemeColorManager(new InCallUIMaterialColorMapUtils(this.context));
     }
 
     this.callList = callList;
@@ -423,6 +422,10 @@ public class InCallPresenter implements CallList.Listener, AudioModeProvider.Aud
     DialerCall dialerCall = callList.getPendingOutgoingCall();
     if (dialerCall == null) {
       dialerCall = callList.getOutgoingCall();
+    }
+    // Outgoing call can be disconnected and reason will be shown in toast
+    if (dialerCall == null) {
+      dialerCall = callList.getDisconnectedCall();
     }
     if (dialerCall == null) {
       return false;

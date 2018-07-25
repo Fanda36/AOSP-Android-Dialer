@@ -35,14 +35,14 @@ import android.provider.ContactsContract.Directory;
 import android.support.annotation.VisibleForTesting;
 import android.support.annotation.WorkerThread;
 import android.text.TextUtils;
-import com.android.contacts.common.R;
 import com.android.contacts.common.util.StopWatch;
 import com.android.dialer.common.LogUtil;
 import com.android.dialer.common.concurrent.DefaultFutureCallback;
 import com.android.dialer.common.concurrent.DialerExecutorComponent;
 import com.android.dialer.common.concurrent.DialerFutureSerializer;
 import com.android.dialer.common.database.Selection;
-import com.android.dialer.configprovider.ConfigProviderBindings;
+import com.android.dialer.configprovider.ConfigProviderComponent;
+import com.android.dialer.contacts.resources.R;
 import com.android.dialer.database.FilteredNumberContract.FilteredNumberColumns;
 import com.android.dialer.smartdial.util.SmartDialNameMatcher;
 import com.android.dialer.smartdial.util.SmartDialPrefix;
@@ -682,7 +682,9 @@ public class DialerDatabaseHelper extends SQLiteOpenHelper {
         context.getSharedPreferences(DATABASE_LAST_CREATED_SHARED_PREF, Context.MODE_PRIVATE);
 
     long defaultLastUpdateMillis =
-        ConfigProviderBindings.get(context).getLong(DEFAULT_LAST_UPDATED_CONFIG_KEY, 0);
+        ConfigProviderComponent.get(context)
+            .getConfigProvider()
+            .getLong(DEFAULT_LAST_UPDATED_CONFIG_KEY, 0);
 
     long sharedPrefLastUpdateMillis =
         databaseLastUpdateSharedPref.getLong(LAST_UPDATED_MILLIS, defaultLastUpdateMillis);
@@ -966,6 +968,12 @@ public class DialerDatabaseHelper extends SQLiteOpenHelper {
       }
       /** Iterates the cursor to find top contact suggestions without duplication. */
       while ((cursor.moveToNext()) && (counter < MAX_ENTRIES)) {
+        if (cursor.isNull(columnDataId)) {
+          LogUtil.i(
+              "DialerDatabaseHelper.getLooseMatches",
+              "_id column null. Row was deleted during iteration, skipping");
+          continue;
+        }
         final long dataID = cursor.getLong(columnDataId);
         final String displayName = cursor.getString(columnDisplayNamePrimary);
         final String phoneNumber = cursor.getString(columnNumber);

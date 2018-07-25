@@ -24,6 +24,7 @@ import com.android.dialer.calllog.config.CallLogConfigModule;
 import com.android.dialer.commandline.CommandLineModule;
 import com.android.dialer.common.concurrent.DialerExecutorModule;
 import com.android.dialer.configprovider.SharedPrefConfigProviderModule;
+import com.android.dialer.contacts.ContactsModule;
 import com.android.dialer.duo.stub.StubDuoModule;
 import com.android.dialer.enrichedcall.stub.StubEnrichedCallModule;
 import com.android.dialer.feedback.stub.StubFeedbackModule;
@@ -35,11 +36,13 @@ import com.android.dialer.phonenumbergeoutil.impl.PhoneNumberGeoUtilModule;
 import com.android.dialer.precall.impl.PreCallModule;
 import com.android.dialer.preferredsim.PreferredSimModule;
 import com.android.dialer.preferredsim.suggestion.stub.StubSimSuggestionModule;
+import com.android.dialer.promotion.impl.PromotionModule;
 import com.android.dialer.simulator.impl.SimulatorModule;
 import com.android.dialer.simulator.stub.StubSimulatorEnrichedCallModule;
 import com.android.dialer.spam.stub.StubSpamModule;
 import com.android.dialer.storage.StorageModule;
 import com.android.dialer.strictmode.impl.SystemStrictModeModule;
+import com.android.dialer.theme.base.impl.AospThemeModule;
 import com.android.incallui.calllocation.impl.CallLocationModule;
 import com.android.incallui.maps.impl.MapsModule;
 import com.android.incallui.speakeasy.StubSpeakEasyModule;
@@ -53,34 +56,36 @@ import javax.inject.Singleton;
  */
 @Singleton
 @Component(
-  modules = {
-    ActiveCallsModule.class,
-    CallLocationModule.class,
-    CallLogModule.class,
-    CallLogConfigModule.class,
-    CommandLineModule.class,
-    ContextModule.class,
-    DialerExecutorModule.class,
-    GlidePhotoManagerModule.class,
-    MapsModule.class,
-    PhoneLookupModule.class, // TODO(zachh): Module which uses APDL?
-    PhoneNumberGeoUtilModule.class,
-    PreCallModule.class,
-    PreferredSimModule.class,
-    SharedPrefConfigProviderModule.class,
-    SimulatorModule.class,
-    StorageModule.class,
-    StubSimulatorEnrichedCallModule.class,
-    StubDuoModule.class,
-    StubEnrichedCallModule.class,
-    StubFeedbackModule.class,
-    StubMetricsModule.class,
-    StubBubbleModule.class,
-    StubSimSuggestionModule.class,
-    StubSpamModule.class,
-    StubSpeakEasyModule.class,
-    SystemStrictModeModule.class,
-    VoicemailModule.class,
-  }
-)
+    modules = {
+      ActiveCallsModule.class,
+      CallLocationModule.class,
+      CallLogModule.class,
+      CallLogConfigModule.class,
+      CommandLineModule.class,
+      ContextModule.class,
+      ContactsModule.class,
+      DialerExecutorModule.class,
+      GlidePhotoManagerModule.class,
+      MapsModule.class,
+      PhoneLookupModule.class, // TODO(zachh): Module which uses APDL?
+      PhoneNumberGeoUtilModule.class,
+      PreCallModule.class,
+      PreferredSimModule.class,
+      PromotionModule.class,
+      SharedPrefConfigProviderModule.class,
+      SimulatorModule.class,
+      StorageModule.class,
+      StubSimulatorEnrichedCallModule.class,
+      StubDuoModule.class,
+      StubEnrichedCallModule.class,
+      StubFeedbackModule.class,
+      StubMetricsModule.class,
+      StubBubbleModule.class,
+      StubSimSuggestionModule.class,
+      StubSpamModule.class,
+      StubSpeakEasyModule.class,
+      SystemStrictModeModule.class,
+      AospThemeModule.class,
+      VoicemailModule.class,
+    })
 public interface GoogleStubDialerRootComponent extends BaseDialerRootComponent {}
